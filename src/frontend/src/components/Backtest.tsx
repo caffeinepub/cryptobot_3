@@ -171,7 +171,7 @@ function runSimulation(
 
       if (price > pos.highestPrice) pos.highestPrice = price;
 
-      if (price >= pos.entryPrice * 1.055) exitReason = "TP";
+      if (price >= pos.entryPrice * 1.04) exitReason = "TP";
       else if (price <= pos.entryPrice * 0.965) exitReason = "SL";
       else {
         const profitPct = (price - pos.entryPrice) / pos.entryPrice;
@@ -698,7 +698,7 @@ export default function Backtest() {
             ["Momentum", "Price > EMA50"],
             ["Trailing Stop", "+3% activate"],
             ["Trail Distance", "1.5% below high"],
-            ["Take Profit", "+5.5%"],
+            ["Take Profit", "+4.0%"],
             ["Stop Loss", "-3.5%"],
             ["Trading Fee", "0.1% / side"],
             ["Slippage", "0.05% / side"],
