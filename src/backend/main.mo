@@ -329,7 +329,7 @@ actor {
   };
 
   // Strategy evaluation
-  let tradingPairs : [Text] = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "AVAXUSDT"];
+  let tradingPairs : [Text] = ["BTCUSDT", "ETHUSDT", "BNBUSDT"];
 
   func performStrategyEvaluation() : async () {
     for (pair in tradingPairs.vals()) {
