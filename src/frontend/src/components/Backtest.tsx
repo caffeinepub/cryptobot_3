@@ -71,15 +71,17 @@ interface PortfolioResults extends BacktestResults {
   perCoin: CoinBreakdown[];
 }
 
-type Coin = "BTC" | "ETH";
+type Coin = "BTC" | "ETH" | "BNB" | "AVAX";
 type Selection = Coin | "PORTFOLIO";
 
 const COIN_SYMBOLS: Record<Coin, string> = {
   BTC: "BTCUSDT",
   ETH: "ETHUSDT",
+  BNB: "BNBUSDT",
+  AVAX: "AVAXUSDT",
 };
 
-const PORTFOLIO_COINS: Coin[] = ["BTC", "ETH"];
+const PORTFOLIO_COINS: Coin[] = ["BTC", "ETH", "BNB", "AVAX"];
 const STARTING_BALANCE = 10000;
 
 // ---- Indicator calculations ----
@@ -452,7 +454,7 @@ export default function Backtest() {
 
   const isPortfolio = selectedCoin === "PORTFOLIO";
   const pairLabel = isPortfolio
-    ? "BTC + ETH (Portfolio)"
+    ? "BTC + ETH + BNB + AVAX (Portfolio)"
     : `${selectedCoin}/USDT`;
 
   const handleRun = async () => {
@@ -469,7 +471,7 @@ export default function Backtest() {
     try {
       if (isPortfolio) {
         // --- Portfolio mode: fetch BTC and ETH in parallel ---
-        setProgressText("Fetching BTC and ETH data in parallel...");
+        setProgressText("Fetching BTC, ETH, BNB, and AVAX data in parallel...");
 
         // Track per-coin batch progress; each coin contributes ~1/2 of 0-80%
         const coinProgress: Record<string, { batch: number; total: number }> =
@@ -492,9 +494,9 @@ export default function Backtest() {
           setProgress(pct);
         };
 
-        const perCoinBalance = STARTING_BALANCE / 2;
+        const perCoinBalance = STARTING_BALANCE / 4;
 
-        const [btcCandles, ethCandles] = await Promise.all(
+        const allCandlesResult = await Promise.all(
           PORTFOLIO_COINS.map((coin) =>
             fetchAllCandles(
               COIN_SYMBOLS[coin],
@@ -509,10 +511,12 @@ export default function Backtest() {
 
         setStatus("simulating");
         setProgress(85);
-        setProgressText("Running portfolio simulation on BTC and ETH...");
+        setProgressText(
+          "Running portfolio simulation on BTC, ETH, BNB, AVAX...",
+        );
         await new Promise((r) => setTimeout(r, 30));
 
-        const allCandles = [btcCandles, ethCandles];
+        const allCandles = allCandlesResult;
         const coinResults = PORTFOLIO_COINS.map((coin, idx) =>
           runSimulation(allCandles[idx], perCoinBalance, coin),
         );
@@ -681,12 +685,15 @@ export default function Backtest() {
         </div>
         <div className="grid grid-cols-2 gap-3 text-xs md:grid-cols-4">
           {[
-            ["Symbol", isPortfolio ? "BTC + ETH (Portfolio)" : pairLabel],
+            [
+              "Symbol",
+              isPortfolio ? "BTC + ETH + BNB + AVAX (Portfolio)" : pairLabel,
+            ],
             ["Timeframe", "15m"],
             ["Period", "1 year"],
             [
               "Starting Balance",
-              isPortfolio ? "$10,000 ($5,000 each)" : "$10,000",
+              isPortfolio ? "$10,000 ($2,500 each)" : "$10,000",
             ],
             ["Position Size", "7% of balance"],
             ["Max Open Trades", "10"],
@@ -736,7 +743,7 @@ export default function Backtest() {
             className="justify-start gap-2 flex-wrap"
             data-ocid="backtest.toggle"
           >
-            {(["BTC", "ETH"] as Coin[]).map((coin) => (
+            {(["BTC", "ETH", "BNB", "AVAX"] as Coin[]).map((coin) => (
               <ToggleGroupItem
                 key={coin}
                 value={coin}
@@ -772,9 +779,9 @@ export default function Backtest() {
               transition={{ duration: 0.25 }}
               className="mt-3 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-primary"
             >
-              Portfolio mode runs BTC and ETH simultaneously with $5,000
-              allocated to each coin. Results are combined into one performance
-              view.
+              Portfolio mode runs BTC, ETH, BNB, and AVAX simultaneously with
+              $2,500 allocated to each coin. Results are combined into one
+              performance view.
             </motion.div>
           )}
         </div>
