@@ -207,9 +207,9 @@ function runSimulation(
       }
     }
 
-    if (i > START_INDEX + 8) {
+    if (i > START_INDEX + 5) {
       const breakoutLevel = Math.max(
-        ...candles.slice(i - 8, i).map((c) => c.high),
+        ...candles.slice(i - 5, i).map((c) => c.high),
       );
       const candleBody = Math.abs(closes[i] - opens[i]);
       const bodyPct = candleBody / opens[i];
@@ -689,7 +689,7 @@ export default function Backtest() {
             ["Position Size", "5% of balance"],
             ["Max Open Trades", "10"],
             ["Entry RSI", "45 – 65"],
-            ["Breakout Filter", "Close > 8-Candle HIGH"],
+            ["Breakout Filter", "Close > 5-Candle HIGH"],
             ["Min Breakout Margin", "0.2% above high"],
             ["Momentum Body", "Body ≥ 0.5% (clearly bullish)"],
             ["Choppy Filter", "Last 3 candles avg body ≥ 0.15%"],
