@@ -195,11 +195,11 @@ function runSimulation(candles: Candle[]): BacktestResults {
       }
     }
 
-    // Entry check — strong breakout above 10-candle HIGH
-    if (i > START_INDEX + 10) {
-      // Breakout level = highest HIGH of the last 10 candles (excluding current)
+    // Entry check — strong breakout above 8-candle HIGH
+    if (i > START_INDEX + 8) {
+      // Breakout level = highest HIGH of the last 8 candles (excluding current)
       const breakoutLevel = Math.max(
-        ...candles.slice(i - 10, i).map((c) => c.high),
+        ...candles.slice(i - 8, i).map((c) => c.high),
       );
       // Momentum filter: candle body must be at least 0.5% of price (clearly bullish)
       const candleBody = Math.abs(closes[i] - opens[i]);
@@ -218,7 +218,7 @@ function runSimulation(candles: Candle[]): BacktestResults {
         openPositions.length < 5 &&
         e50 > e200 && // EMA50 > EMA200 (bullish trend)
         price > e50 && // price above EMA50
-        price > breakoutLevel && // close must be above 10-candle high
+        price > breakoutLevel && // close must be above 8-candle high
         price >= breakoutLevel * 1.002 && // at least 0.2% above previous high (real breakout)
         closes[i] > opens[i] && // breakout candle must be bullish
         bodyPct >= 0.005 && // clearly bullish: body >= 0.5% of price
@@ -509,7 +509,7 @@ export default function Backtest() {
             ["Position Size", "3% of balance"],
             ["Max Open Trades", "5"],
             ["Entry RSI", "45 – 65"],
-            ["Breakout Filter", "Close > 10-Candle HIGH"],
+            ["Breakout Filter", "Close > 8-Candle HIGH"],
             ["Min Breakout Margin", "0.2% above high"],
             ["Momentum Body", "Body ≥ 0.5% (clearly bullish)"],
             ["Choppy Filter", "Last 3 candles avg body ≥ 0.15%"],
