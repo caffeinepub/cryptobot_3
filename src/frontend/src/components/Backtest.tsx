@@ -71,16 +71,15 @@ interface PortfolioResults extends BacktestResults {
   perCoin: CoinBreakdown[];
 }
 
-type Coin = "BTC" | "ETH" | "SOL";
+type Coin = "BTC" | "ETH";
 type Selection = Coin | "PORTFOLIO";
 
 const COIN_SYMBOLS: Record<Coin, string> = {
   BTC: "BTCUSDT",
   ETH: "ETHUSDT",
-  SOL: "SOLUSDT",
 };
 
-const PORTFOLIO_COINS: Coin[] = ["BTC", "ETH", "SOL"];
+const PORTFOLIO_COINS: Coin[] = ["BTC", "ETH"];
 const STARTING_BALANCE = 10000;
 
 // ---- Indicator calculations ----
@@ -453,7 +452,7 @@ export default function Backtest() {
 
   const isPortfolio = selectedCoin === "PORTFOLIO";
   const pairLabel = isPortfolio
-    ? "BTC + ETH + SOL (Portfolio)"
+    ? "BTC + ETH (Portfolio)"
     : `${selectedCoin}/USDT`;
 
   const handleRun = async () => {
@@ -469,10 +468,10 @@ export default function Backtest() {
 
     try {
       if (isPortfolio) {
-        // --- Portfolio mode: fetch all 3 in parallel ---
-        setProgressText("Fetching BTC, ETH, SOL data in parallel...");
+        // --- Portfolio mode: fetch BTC and ETH in parallel ---
+        setProgressText("Fetching BTC and ETH data in parallel...");
 
-        // Track per-coin batch progress; each coin contributes ~1/3 of 0-80%
+        // Track per-coin batch progress; each coin contributes ~1/2 of 0-80%
         const coinProgress: Record<string, { batch: number; total: number }> =
           {};
         for (const coin of PORTFOLIO_COINS) {
@@ -493,9 +492,9 @@ export default function Backtest() {
           setProgress(pct);
         };
 
-        const perCoinBalance = STARTING_BALANCE / 3;
+        const perCoinBalance = STARTING_BALANCE / 2;
 
-        const [btcCandles, ethCandles, solCandles] = await Promise.all(
+        const [btcCandles, ethCandles] = await Promise.all(
           PORTFOLIO_COINS.map((coin) =>
             fetchAllCandles(
               COIN_SYMBOLS[coin],
@@ -510,10 +509,10 @@ export default function Backtest() {
 
         setStatus("simulating");
         setProgress(85);
-        setProgressText("Running portfolio simulation on all 3 coins...");
+        setProgressText("Running portfolio simulation on BTC and ETH...");
         await new Promise((r) => setTimeout(r, 30));
 
-        const allCandles = [btcCandles, ethCandles, solCandles];
+        const allCandles = [btcCandles, ethCandles];
         const coinResults = PORTFOLIO_COINS.map((coin, idx) =>
           runSimulation(allCandles[idx], perCoinBalance, coin),
         );
@@ -682,12 +681,12 @@ export default function Backtest() {
         </div>
         <div className="grid grid-cols-2 gap-3 text-xs md:grid-cols-4">
           {[
-            ["Symbol", isPortfolio ? "BTC + ETH + SOL (Portfolio)" : pairLabel],
+            ["Symbol", isPortfolio ? "BTC + ETH (Portfolio)" : pairLabel],
             ["Timeframe", "15m"],
             ["Period", "1 year"],
             [
               "Starting Balance",
-              isPortfolio ? "$10,000 ($3,333 each)" : "$10,000",
+              isPortfolio ? "$10,000 ($5,000 each)" : "$10,000",
             ],
             ["Position Size", "4% of balance"],
             ["Max Open Trades", "5"],
@@ -737,7 +736,7 @@ export default function Backtest() {
             className="justify-start gap-2 flex-wrap"
             data-ocid="backtest.toggle"
           >
-            {(["BTC", "ETH", "SOL"] as Coin[]).map((coin) => (
+            {(["BTC", "ETH"] as Coin[]).map((coin) => (
               <ToggleGroupItem
                 key={coin}
                 value={coin}
@@ -773,7 +772,7 @@ export default function Backtest() {
               transition={{ duration: 0.25 }}
               className="mt-3 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-primary"
             >
-              Portfolio mode runs BTC, ETH, and SOL simultaneously with $3,333
+              Portfolio mode runs BTC and ETH simultaneously with $5,000
               allocated to each coin. Results are combined into one performance
               view.
             </motion.div>
@@ -869,7 +868,7 @@ export default function Backtest() {
                 label="Num Trades"
                 value={String(activeResults.numTrades)}
                 color="neutral"
-                sub={isPortfolio ? "across all 3 coins" : undefined}
+                sub={isPortfolio ? "across both coins" : undefined}
               />
               <StatCard
                 index={4}
@@ -895,7 +894,7 @@ export default function Backtest() {
                       ? "amber"
                       : "red"
                 }
-                sub={isPortfolio ? "worst across 3 coins" : undefined}
+                sub={isPortfolio ? "worst across both coins" : undefined}
               />
               <StatCard
                 index={6}
@@ -929,7 +928,7 @@ export default function Backtest() {
                 <div className="mb-3 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
                   Per-Coin Breakdown
                 </div>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   {portfolioResults.perCoin.map((breakdown, idx) => (
                     <CoinCard
                       key={breakdown.coin}
