@@ -374,7 +374,7 @@ export default function Settings() {
             </div>
             <ul className="space-y-1 text-muted-foreground">
               <li className="flex gap-1.5">
-                <span className="text-primary">▸</span> Max 1% risk per trade
+                <span className="text-primary">▸</span> Max 3% risk per trade
               </li>
               <li className="flex gap-1.5">
                 <span className="text-primary">▸</span> Max 5 open trades

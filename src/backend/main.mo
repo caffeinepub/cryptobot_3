@@ -331,7 +331,7 @@ actor {
   // Strategy evaluation
   func performStrategyEvaluation() : async () {
     try {
-      let url = "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=210";
+      let url = "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=15m&limit=210";
       addLog("info", "Fetching market data from Binance API");
       let candleData = await OutCall.httpGetRequest(url, [], transform);
       let _ = candleData;

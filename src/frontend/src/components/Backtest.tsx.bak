@@ -195,39 +195,22 @@ function runSimulation(candles: Candle[]): BacktestResults {
       }
     }
 
-    // Entry check — strong breakout above 10-candle HIGH
-    if (i > START_INDEX + 10) {
-      // Breakout level = highest HIGH of the last 10 candles (excluding current)
-      const breakoutLevel = Math.max(
-        ...candles.slice(i - 10, i).map((c) => c.high),
-      );
-      // Momentum filter: candle body must be at least 0.5% of price (clearly bullish)
-      const candleBody = Math.abs(closes[i] - opens[i]);
-      const bodyPct = candleBody / opens[i];
-
-      // Choppy market filter: avg body of last 3 candles must be >= 0.15% of price
-      const avgBodyLast3 =
-        (Math.abs(closes[i - 1] - opens[i - 1]) +
-          Math.abs(closes[i - 2] - opens[i - 2]) +
-          Math.abs(closes[i - 3] - opens[i - 3])) /
-        3;
-      const avgBodyPctLast3 = avgBodyLast3 / price;
+    // Entry check — simple momentum breakout
+    if (i > START_INDEX + 5) {
+      const prev5High = Math.max(...closes.slice(i - 5, i));
 
       if (
         consecutiveLosses < 5 &&
         openPositions.length < 5 &&
         e50 > e200 && // EMA50 > EMA200 (bullish trend)
         price > e50 && // price above EMA50
-        price > breakoutLevel && // close must be above 10-candle high
-        price >= breakoutLevel * 1.002 && // at least 0.2% above previous high (real breakout)
+        price > prev5High && // breakout above last 5 candle high
         closes[i] > opens[i] && // breakout candle must be bullish
-        bodyPct >= 0.005 && // clearly bullish: body >= 0.5% of price
-        avgBodyPctLast3 >= 0.0015 && // choppy filter: last 3 candles not tiny/sideways
         r >= 45 &&
         r <= 65 && // RSI between 45 and 65
         i - lastTradeIndex > 5 // cooldown
       ) {
-        const size = balance * 0.03;
+        const size = balance * 0.01;
         const effectiveEntryPrice = price * (1 + SLIPPAGE);
         balance -= size;
         balance -= size * TRADING_FEE;
@@ -506,13 +489,10 @@ export default function Backtest() {
             ["Timeframe", "15m"],
             ["Period", "1 year"],
             ["Starting Balance", "$10,000"],
-            ["Position Size", "3% of balance"],
+            ["Position Size", "1% of balance"],
             ["Max Open Trades", "5"],
             ["Entry RSI", "45 – 65"],
-            ["Breakout Filter", "Close > 10-Candle HIGH"],
-            ["Min Breakout Margin", "0.2% above high"],
-            ["Momentum Body", "Body ≥ 0.5% (clearly bullish)"],
-            ["Choppy Filter", "Last 3 candles avg body ≥ 0.15%"],
+            ["Breakout Filter", "Close > 5-Candle Close High"],
             ["Candle Type", "Bullish (Close > Open)"],
             ["Trend Filter", "EMA50 > EMA200"],
             ["Momentum", "Price > EMA50"],
