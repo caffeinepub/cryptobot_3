@@ -235,7 +235,7 @@ function runSimulation(
         r <= 65 &&
         i - lastTradeIndex > 5
       ) {
-        const size = balance * 0.07;
+        const size = balance * 0.05;
         const effectiveEntryPrice = price * (1 + SLIPPAGE);
         balance -= size;
         balance -= size * TRADING_FEE;
@@ -686,7 +686,7 @@ export default function Backtest() {
               "Starting Balance",
               isPortfolio ? "$10,000 ($3,333 each)" : "$10,000",
             ],
-            ["Position Size", "7% of balance"],
+            ["Position Size", "5% of balance"],
             ["Max Open Trades", "10"],
             ["Entry RSI", "45 – 65"],
             ["Breakout Filter", "Close > 8-Candle HIGH"],
