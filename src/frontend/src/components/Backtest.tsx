@@ -44,6 +44,7 @@ interface Trade {
   pnlPct: number;
   reason: "TP" | "SL" | "TRAIL";
   size: number; // dollars invested
+  coin?: string;
 }
 
 interface BacktestResults {
@@ -58,7 +59,20 @@ interface BacktestResults {
   trades: Trade[];
 }
 
+interface CoinBreakdown {
+  coin: string;
+  numTrades: number;
+  winRate: number;
+  totalProfitPct: number;
+  finalBalance: number;
+}
+
+interface PortfolioResults extends BacktestResults {
+  perCoin: CoinBreakdown[];
+}
+
 type Coin = "BTC" | "ETH" | "SOL";
+type Selection = Coin | "PORTFOLIO";
 
 const COIN_SYMBOLS: Record<Coin, string> = {
   BTC: "BTCUSDT",
@@ -66,12 +80,14 @@ const COIN_SYMBOLS: Record<Coin, string> = {
   SOL: "SOLUSDT",
 };
 
+const PORTFOLIO_COINS: Coin[] = ["BTC", "ETH", "SOL"];
+const STARTING_BALANCE = 10000;
+
 // ---- Indicator calculations ----
 
 function calcEMA(closes: number[], period: number): number[] {
   const k = 2 / (period + 1);
   const ema: number[] = new Array(closes.length).fill(0);
-  // Seed with SMA
   let sum = 0;
   for (let i = 0; i < period; i++) sum += closes[i];
   ema[period - 1] = sum / period;
@@ -85,7 +101,6 @@ function calcRSI(closes: number[], period = 14): number[] {
   const rsi: number[] = new Array(closes.length).fill(50);
   if (closes.length < period + 1) return rsi;
 
-  // Initial average gain/loss
   let avgGain = 0;
   let avgLoss = 0;
   for (let i = 1; i <= period; i++) {
@@ -113,10 +128,13 @@ function calcRSI(closes: number[], period = 14): number[] {
 
 // ---- Simulation ----
 
-function runSimulation(candles: Candle[]): BacktestResults {
-  const TRADING_FEE = 0.001; // 0.1% per side
-  const SLIPPAGE = 0.0005; // 0.05% per side
-  // TOTAL_COST = 0.15% per side, 0.3% round-trip
+function runSimulation(
+  candles: Candle[],
+  startingBalance = STARTING_BALANCE,
+  coinLabel?: string,
+): BacktestResults {
+  const TRADING_FEE = 0.001;
+  const SLIPPAGE = 0.0005;
 
   const closes = candles.map((c) => c.close);
   const opens = candles.map((c) => c.open);
@@ -124,24 +142,22 @@ function runSimulation(candles: Candle[]): BacktestResults {
   const ema200 = calcEMA(closes, 200);
   const rsi = calcRSI(closes, 14);
 
-  const STARTING_BALANCE = 10000;
-  let balance = STARTING_BALANCE;
-  const equityCurve: number[] = [STARTING_BALANCE];
+  let balance = startingBalance;
+  const equityCurve: number[] = [startingBalance];
 
   interface OpenPos {
     entryIndex: number;
-    entryPrice: number; // slippage-adjusted effective entry price
+    entryPrice: number;
     highestPrice: number;
-    size: number; // dollars
+    size: number;
   }
 
   const openPositions: OpenPos[] = [];
   const closedTrades: Trade[] = [];
   let consecutiveLosses = 0;
 
-  const START_INDEX = 210; // ensure EMA200 seeded
-
-  let lastTradeIndex = -1; // cooldown tracking
+  const START_INDEX = 210;
+  let lastTradeIndex = -1;
 
   for (let i = START_INDEX; i < candles.length; i++) {
     const price = closes[i];
@@ -149,18 +165,15 @@ function runSimulation(candles: Candle[]): BacktestResults {
     const e200 = ema200[i];
     const r = rsi[i];
 
-    // Check exit for all open positions
     for (let p = openPositions.length - 1; p >= 0; p--) {
       const pos = openPositions[p];
       let exitReason: "TP" | "SL" | "TRAIL" | null = null;
 
-      // Update highest price seen
       if (price > pos.highestPrice) pos.highestPrice = price;
 
       if (price >= pos.entryPrice * 1.055) exitReason = "TP";
       else if (price <= pos.entryPrice * 0.965) exitReason = "SL";
       else {
-        // Trailing stop: activate at +3%, trail 1.5% below highest
         const profitPct = (price - pos.entryPrice) / pos.entryPrice;
         if (profitPct >= 0.03 && price <= pos.highestPrice * 0.985) {
           exitReason = "TRAIL";
@@ -168,11 +181,9 @@ function runSimulation(candles: Candle[]): BacktestResults {
       }
 
       if (exitReason) {
-        // Apply exit slippage — effective exit price is worse (lower)
         const effectiveExitPrice = price * (1 - SLIPPAGE);
         const pnlPct = (effectiveExitPrice - pos.entryPrice) / pos.entryPrice;
         let pnlDollar = pos.size * pnlPct;
-        // Deduct exit fee on position value + profit
         const exitFee = (pos.size + Math.max(0, pnlDollar)) * TRADING_FEE;
         pnlDollar -= exitFee;
         balance += pos.size + pnlDollar;
@@ -189,23 +200,20 @@ function runSimulation(candles: Candle[]): BacktestResults {
           pnlPct: pnlPct * 100,
           reason: exitReason,
           size: pos.size,
+          coin: coinLabel,
         });
 
         openPositions.splice(p, 1);
       }
     }
 
-    // Entry check — strong breakout above 8-candle HIGH
     if (i > START_INDEX + 8) {
-      // Breakout level = highest HIGH of the last 8 candles (excluding current)
       const breakoutLevel = Math.max(
         ...candles.slice(i - 8, i).map((c) => c.high),
       );
-      // Momentum filter: candle body must be at least 0.5% of price (clearly bullish)
       const candleBody = Math.abs(closes[i] - opens[i]);
       const bodyPct = candleBody / opens[i];
 
-      // Choppy market filter: avg body of last 3 candles must be >= 0.15% of price
       const avgBodyLast3 =
         (Math.abs(closes[i - 1] - opens[i - 1]) +
           Math.abs(closes[i - 2] - opens[i - 2]) +
@@ -216,16 +224,16 @@ function runSimulation(candles: Candle[]): BacktestResults {
       if (
         consecutiveLosses < 5 &&
         openPositions.length < 5 &&
-        e50 > e200 && // EMA50 > EMA200 (bullish trend)
-        price > e50 && // price above EMA50
-        price > breakoutLevel && // close must be above 8-candle high
-        price >= breakoutLevel * 1.002 && // at least 0.2% above previous high (real breakout)
-        closes[i] > opens[i] && // breakout candle must be bullish
-        bodyPct >= 0.005 && // clearly bullish: body >= 0.5% of price
-        avgBodyPctLast3 >= 0.0015 && // choppy filter: last 3 candles not tiny/sideways
+        e50 > e200 &&
+        price > e50 &&
+        price > breakoutLevel &&
+        price >= breakoutLevel * 1.002 &&
+        closes[i] > opens[i] &&
+        bodyPct >= 0.005 &&
+        avgBodyPctLast3 >= 0.0015 &&
         r >= 45 &&
-        r <= 65 && // RSI between 45 and 65
-        i - lastTradeIndex > 5 // cooldown
+        r <= 65 &&
+        i - lastTradeIndex > 5
       ) {
         const size = balance * 0.03;
         const effectiveEntryPrice = price * (1 + SLIPPAGE);
@@ -244,7 +252,6 @@ function runSimulation(candles: Candle[]): BacktestResults {
     equityCurve.push(balance + openPositions.reduce((s, p) => s + p.size, 0));
   }
 
-  // Close remaining open positions at last price
   const lastPrice = closes[closes.length - 1];
   for (const pos of openPositions) {
     const effectiveExitPrice = lastPrice * (1 - SLIPPAGE);
@@ -262,10 +269,10 @@ function runSimulation(candles: Candle[]): BacktestResults {
       pnlPct: pnlPct * 100,
       reason: "TRAIL",
       size: pos.size,
+      coin: coinLabel,
     });
   }
 
-  // Max drawdown from equity curve
   let peak = equityCurve[0];
   let maxDD = 0;
   for (const eq of equityCurve) {
@@ -287,9 +294,9 @@ function runSimulation(candles: Candle[]): BacktestResults {
       : 0;
 
   return {
-    startingBalance: STARTING_BALANCE,
+    startingBalance,
     finalBalance: balance,
-    totalProfitPct: ((balance - STARTING_BALANCE) / STARTING_BALANCE) * 100,
+    totalProfitPct: ((balance - startingBalance) / startingBalance) * 100,
     numTrades: closedTrades.length,
     winRate:
       closedTrades.length > 0 ? (wins.length / closedTrades.length) * 100 : 0,
@@ -308,7 +315,7 @@ async function fetchAllCandles(
   signal: AbortSignal,
 ): Promise<Candle[]> {
   const MS_PER_YEAR = 365 * 24 * 60 * 60 * 1000;
-  const INTERVAL_MS = 15 * 60 * 1000; // 15m
+  const INTERVAL_MS = 15 * 60 * 1000;
   const BATCH = 1000;
   const totalCandles = Math.ceil(MS_PER_YEAR / INTERVAL_MS);
   const totalBatches = Math.ceil(totalCandles / BATCH);
@@ -337,11 +344,10 @@ async function fetchAllCandles(
       });
     }
 
-    startTime = Number(data[data.length - 1][6]) + 1; // closeTime + 1ms
+    startTime = Number(data[data.length - 1][6]) + 1;
     batchNum++;
     onProgress(batchNum, totalBatches);
 
-    // small yield to keep UI responsive
     await new Promise((r) => setTimeout(r, 0));
   }
 
@@ -390,6 +396,46 @@ function StatCard({
   );
 }
 
+// ---- Per-coin mini card ----
+
+function CoinCard({
+  breakdown,
+  index,
+}: {
+  breakdown: CoinBreakdown;
+  index: number;
+}) {
+  const profitColor =
+    breakdown.totalProfitPct >= 0 ? "text-success" : "text-danger";
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, delay: 0.55 + index * 0.08 }}
+      className="card-panel p-4 flex flex-col gap-2"
+    >
+      <div className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
+        {breakdown.coin}/USDT
+      </div>
+      <div className={cn("mono text-xl font-bold", profitColor)}>
+        {breakdown.totalProfitPct >= 0 ? "+" : ""}
+        {breakdown.totalProfitPct.toFixed(2)}%
+      </div>
+      <div className="flex flex-col gap-0.5 text-[11px] text-muted-foreground">
+        <span>{breakdown.numTrades} trades</span>
+        <span>Win rate: {breakdown.winRate.toFixed(1)}%</span>
+        <span className="mono">
+          $
+          {breakdown.finalBalance.toLocaleString("en-US", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}
+        </span>
+      </div>
+    </motion.div>
+  );
+}
+
 // ---- Main component ----
 
 export default function Backtest() {
@@ -399,46 +445,178 @@ export default function Backtest() {
   const [progress, setProgress] = useState(0);
   const [progressText, setProgressText] = useState("");
   const [results, setResults] = useState<BacktestResults | null>(null);
+  const [portfolioResults, setPortfolioResults] =
+    useState<PortfolioResults | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
-  const [selectedCoin, setSelectedCoin] = useState<Coin>("BTC");
+  const [selectedCoin, setSelectedCoin] = useState<Selection>("BTC");
   const abortRef = useRef<AbortController | null>(null);
 
-  const symbol = COIN_SYMBOLS[selectedCoin];
-  const pairLabel = `${selectedCoin}/USDT`;
+  const isPortfolio = selectedCoin === "PORTFOLIO";
+  const pairLabel = isPortfolio
+    ? "BTC + ETH + SOL (Portfolio)"
+    : `${selectedCoin}/USDT`;
 
   const handleRun = async () => {
     setStatus("fetching");
     setProgress(0);
     setProgressText("Fetching data...");
     setResults(null);
+    setPortfolioResults(null);
     setErrorMsg("");
 
     abortRef.current = new AbortController();
+    const signal = abortRef.current.signal;
+
     try {
-      const candles = await fetchAllCandles(
-        symbol,
-        (batch, total) => {
-          setProgress(Math.round((batch / total) * 80));
-          setProgressText(`Fetching data... batch ${batch}/${total}`);
-        },
-        abortRef.current.signal,
-      );
+      if (isPortfolio) {
+        // --- Portfolio mode: fetch all 3 in parallel ---
+        setProgressText("Fetching BTC, ETH, SOL data in parallel...");
 
-      setStatus("simulating");
-      setProgress(85);
-      setProgressText(
-        `Running simulation on ${candles.length.toLocaleString()} candles...`,
-      );
+        // Track per-coin batch progress; each coin contributes ~1/3 of 0-80%
+        const coinProgress: Record<string, { batch: number; total: number }> =
+          {};
+        for (const coin of PORTFOLIO_COINS) {
+          coinProgress[coin] = { batch: 0, total: 1 };
+        }
 
-      // yield to let UI update
-      await new Promise((r) => setTimeout(r, 30));
+        const updatePortfolioProgress = () => {
+          let totalBatches = 0;
+          let doneBatches = 0;
+          for (const coin of PORTFOLIO_COINS) {
+            totalBatches += coinProgress[coin].total;
+            doneBatches += coinProgress[coin].batch;
+          }
+          const pct =
+            totalBatches > 0
+              ? Math.round((doneBatches / totalBatches) * 80)
+              : 0;
+          setProgress(pct);
+        };
 
-      const res = runSimulation(candles);
+        const perCoinBalance = STARTING_BALANCE / 3;
 
-      setProgress(100);
-      setProgressText("Done!");
-      setResults(res);
-      setStatus("done");
+        const [btcCandles, ethCandles, solCandles] = await Promise.all(
+          PORTFOLIO_COINS.map((coin) =>
+            fetchAllCandles(
+              COIN_SYMBOLS[coin],
+              (batch, total) => {
+                coinProgress[coin] = { batch, total };
+                updatePortfolioProgress();
+              },
+              signal,
+            ),
+          ),
+        );
+
+        setStatus("simulating");
+        setProgress(85);
+        setProgressText("Running portfolio simulation on all 3 coins...");
+        await new Promise((r) => setTimeout(r, 30));
+
+        const allCandles = [btcCandles, ethCandles, solCandles];
+        const coinResults = PORTFOLIO_COINS.map((coin, idx) =>
+          runSimulation(allCandles[idx], perCoinBalance, coin),
+        );
+
+        // Combine all trades with coin label
+        const allTrades: Trade[] = coinResults.flatMap((r) => r.trades);
+        allTrades.sort((a, b) => a.entryIndex - b.entryIndex);
+
+        const combinedFinalBalance = coinResults.reduce(
+          (s, r) => s + r.finalBalance,
+          0,
+        );
+        const totalTrades = coinResults.reduce((s, r) => s + r.numTrades, 0);
+        const totalWins = coinResults.reduce(
+          (s, r) => s + Math.round((r.winRate / 100) * r.numTrades),
+          0,
+        );
+        const combinedWinRate =
+          totalTrades > 0 ? (totalWins / totalTrades) * 100 : 0;
+        const worstDrawdown = Math.max(
+          ...coinResults.map((r) => r.maxDrawdown),
+        );
+        const combinedGrossProfit = coinResults.reduce(
+          (s, r) =>
+            s +
+            r.trades
+              .filter((t) => t.pnlDollar > 0)
+              .reduce((a, t) => a + t.pnlDollar, 0),
+          0,
+        );
+        const combinedGrossLoss = coinResults.reduce(
+          (s, r) =>
+            s +
+            Math.abs(
+              r.trades
+                .filter((t) => t.pnlDollar <= 0)
+                .reduce((a, t) => a + t.pnlDollar, 0),
+            ),
+          0,
+        );
+        const combinedProfitFactor =
+          combinedGrossLoss === 0
+            ? combinedGrossProfit
+            : combinedGrossProfit / combinedGrossLoss;
+
+        const weightedDuration =
+          totalTrades > 0
+            ? coinResults.reduce((s, r) => s + r.avgDuration * r.numTrades, 0) /
+              totalTrades
+            : 0;
+
+        const perCoin: CoinBreakdown[] = PORTFOLIO_COINS.map((coin, idx) => ({
+          coin,
+          numTrades: coinResults[idx].numTrades,
+          winRate: coinResults[idx].winRate,
+          totalProfitPct: coinResults[idx].totalProfitPct,
+          finalBalance: coinResults[idx].finalBalance,
+        }));
+
+        const portfolioRes: PortfolioResults = {
+          startingBalance: STARTING_BALANCE,
+          finalBalance: combinedFinalBalance,
+          totalProfitPct:
+            ((combinedFinalBalance - STARTING_BALANCE) / STARTING_BALANCE) *
+            100,
+          numTrades: totalTrades,
+          winRate: combinedWinRate,
+          maxDrawdown: worstDrawdown,
+          profitFactor: combinedProfitFactor,
+          avgDuration: weightedDuration,
+          trades: allTrades,
+          perCoin,
+        };
+
+        setProgress(100);
+        setProgressText("Done!");
+        setPortfolioResults(portfolioRes);
+        setStatus("done");
+      } else {
+        // --- Single coin mode ---
+        const symbol = COIN_SYMBOLS[selectedCoin as Coin];
+        const candles = await fetchAllCandles(
+          symbol,
+          (batch, total) => {
+            setProgress(Math.round((batch / total) * 80));
+            setProgressText(`Fetching data... batch ${batch}/${total}`);
+          },
+          signal,
+        );
+
+        setStatus("simulating");
+        setProgress(85);
+        setProgressText(
+          `Running simulation on ${candles.length.toLocaleString()} candles...`,
+        );
+        await new Promise((r) => setTimeout(r, 30));
+
+        const res = runSimulation(candles);
+        setProgress(100);
+        setProgressText("Done!");
+        setResults(res);
+        setStatus("done");
+      }
     } catch (e: unknown) {
       if ((e as Error)?.message === "Aborted") {
         setStatus("idle");
@@ -455,6 +633,8 @@ export default function Backtest() {
   };
 
   const isRunning = status === "fetching" || status === "simulating";
+
+  const activeResults = isPortfolio ? portfolioResults : results;
 
   const reasonBadge = (r: "TP" | "SL" | "TRAIL") => {
     if (r === "TP")
@@ -502,10 +682,13 @@ export default function Backtest() {
         </div>
         <div className="grid grid-cols-2 gap-3 text-xs md:grid-cols-4">
           {[
-            ["Symbol", pairLabel],
+            ["Symbol", isPortfolio ? "BTC + ETH + SOL (Portfolio)" : pairLabel],
             ["Timeframe", "15m"],
             ["Period", "1 year"],
-            ["Starting Balance", "$10,000"],
+            [
+              "Starting Balance",
+              isPortfolio ? "$10,000 ($3,333 each)" : "$10,000",
+            ],
             ["Position Size", "3% of balance"],
             ["Max Open Trades", "5"],
             ["Entry RSI", "45 – 65"],
@@ -548,10 +731,10 @@ export default function Backtest() {
             type="single"
             value={selectedCoin}
             onValueChange={(v) => {
-              if (v) setSelectedCoin(v as Coin);
+              if (v) setSelectedCoin(v as Selection);
             }}
             disabled={isRunning}
-            className="justify-start gap-2"
+            className="justify-start gap-2 flex-wrap"
             data-ocid="backtest.toggle"
           >
             {(["BTC", "ETH", "SOL"] as Coin[]).map((coin) => (
@@ -569,7 +752,32 @@ export default function Backtest() {
                 {coin}
               </ToggleGroupItem>
             ))}
+            <ToggleGroupItem
+              value="PORTFOLIO"
+              data-ocid="backtest.portfolio.tab"
+              className={cn(
+                "mono h-9 rounded-lg border px-4 text-xs font-bold tracking-wider transition-all",
+                selectedCoin === "PORTFOLIO"
+                  ? "border-primary/40 bg-primary/10 text-primary"
+                  : "border-border bg-muted/20 text-muted-foreground hover:border-border hover:bg-muted/40 hover:text-foreground",
+              )}
+            >
+              Portfolio
+            </ToggleGroupItem>
           </ToggleGroup>
+
+          {isPortfolio && (
+            <motion.div
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.25 }}
+              className="mt-3 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-primary"
+            >
+              Portfolio mode runs BTC, ETH, and SOL simultaneously with $3,333
+              allocated to each coin. Results are combined into one performance
+              view.
+            </motion.div>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-4">
@@ -593,7 +801,7 @@ export default function Backtest() {
             ) : (
               <>
                 <FlaskConical className="h-4 w-4" />
-                Run Backtest
+                {isPortfolio ? "Run Portfolio Backtest" : "Run Backtest"}
               </>
             )}
           </Button>
@@ -611,10 +819,10 @@ export default function Backtest() {
             </div>
           )}
 
-          {status === "done" && results && (
+          {status === "done" && activeResults && (
             <div className="flex items-center gap-2 text-sm text-success">
               <CheckCircle2 className="h-4 w-4" />
-              Simulation complete — {results.numTrades} trades analyzed on{" "}
+              Simulation complete — {activeResults.numTrades} trades analyzed on{" "}
               {pairLabel}
             </div>
           )}
@@ -633,7 +841,7 @@ export default function Backtest() {
 
       {/* Results */}
       <AnimatePresence>
-        {status === "done" && results && (
+        {status === "done" && activeResults && (
           <>
             {/* Stat cards */}
             <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
@@ -646,55 +854,57 @@ export default function Backtest() {
               <StatCard
                 index={1}
                 label="Final Balance"
-                value={`$${results.finalBalance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-                color={results.finalBalance >= 10000 ? "green" : "red"}
+                value={`$${activeResults.finalBalance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                color={activeResults.finalBalance >= 10000 ? "green" : "red"}
               />
               <StatCard
                 index={2}
                 label="Total Profit"
-                value={`${results.totalProfitPct >= 0 ? "+" : ""}${results.totalProfitPct.toFixed(2)}%`}
-                color={results.totalProfitPct >= 0 ? "green" : "red"}
-                sub={`$${(results.finalBalance - 10000).toFixed(2)}`}
+                value={`${activeResults.totalProfitPct >= 0 ? "+" : ""}${activeResults.totalProfitPct.toFixed(2)}%`}
+                color={activeResults.totalProfitPct >= 0 ? "green" : "red"}
+                sub={`$${(activeResults.finalBalance - 10000).toFixed(2)}`}
               />
               <StatCard
                 index={3}
                 label="Num Trades"
-                value={String(results.numTrades)}
+                value={String(activeResults.numTrades)}
                 color="neutral"
+                sub={isPortfolio ? "across all 3 coins" : undefined}
               />
               <StatCard
                 index={4}
                 label="Win Rate"
-                value={`${results.winRate.toFixed(1)}%`}
+                value={`${activeResults.winRate.toFixed(1)}%`}
                 color={
-                  results.winRate >= 55
+                  activeResults.winRate >= 55
                     ? "green"
-                    : results.winRate >= 45
+                    : activeResults.winRate >= 45
                       ? "amber"
                       : "red"
                 }
-                sub={`${Math.round((results.winRate / 100) * results.numTrades)} wins / ${results.numTrades - Math.round((results.winRate / 100) * results.numTrades)} losses`}
+                sub={`${Math.round((activeResults.winRate / 100) * activeResults.numTrades)} wins / ${activeResults.numTrades - Math.round((activeResults.winRate / 100) * activeResults.numTrades)} losses`}
               />
               <StatCard
                 index={5}
                 label="Max Drawdown"
-                value={`-${results.maxDrawdown.toFixed(2)}%`}
+                value={`-${activeResults.maxDrawdown.toFixed(2)}%`}
                 color={
-                  results.maxDrawdown < 10
+                  activeResults.maxDrawdown < 10
                     ? "green"
-                    : results.maxDrawdown < 20
+                    : activeResults.maxDrawdown < 20
                       ? "amber"
                       : "red"
                 }
+                sub={isPortfolio ? "worst across 3 coins" : undefined}
               />
               <StatCard
                 index={6}
                 label="Profit Factor"
-                value={results.profitFactor.toFixed(2)}
+                value={activeResults.profitFactor.toFixed(2)}
                 color={
-                  results.profitFactor >= 1.5
+                  activeResults.profitFactor >= 1.5
                     ? "green"
-                    : results.profitFactor >= 1
+                    : activeResults.profitFactor >= 1
                       ? "amber"
                       : "red"
                 }
@@ -703,11 +913,33 @@ export default function Backtest() {
               <StatCard
                 index={7}
                 label="Avg Trade Duration"
-                value={`${results.avgDuration.toFixed(0)} candles`}
-                sub={`≈ ${((results.avgDuration * 15) / 60).toFixed(1)} hours`}
+                value={`${activeResults.avgDuration.toFixed(0)} candles`}
+                sub={`≈ ${((activeResults.avgDuration * 15) / 60).toFixed(1)} hours`}
                 color="neutral"
               />
             </div>
+
+            {/* Per-coin breakdown (portfolio only) */}
+            {isPortfolio && portfolioResults && (
+              <motion.div
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.35, delay: 0.5 }}
+              >
+                <div className="mb-3 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
+                  Per-Coin Breakdown
+                </div>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                  {portfolioResults.perCoin.map((breakdown, idx) => (
+                    <CoinCard
+                      key={breakdown.coin}
+                      breakdown={breakdown}
+                      index={idx}
+                    />
+                  ))}
+                </div>
+              </motion.div>
+            )}
 
             {/* Trade table */}
             <motion.div
@@ -724,12 +956,18 @@ export default function Backtest() {
                   <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
                     <span className="flex items-center gap-1">
                       <TrendingUp className="h-3 w-3 text-success" />
-                      {results.trades.filter((t) => t.pnlDollar > 0).length}{" "}
+                      {
+                        activeResults.trades.filter((t) => t.pnlDollar > 0)
+                          .length
+                      }{" "}
                       wins
                     </span>
                     <span className="flex items-center gap-1">
                       <TrendingDown className="h-3 w-3 text-danger" />
-                      {results.trades.filter((t) => t.pnlDollar <= 0).length}{" "}
+                      {
+                        activeResults.trades.filter((t) => t.pnlDollar <= 0)
+                          .length
+                      }{" "}
                       losses
                     </span>
                   </div>
@@ -742,6 +980,11 @@ export default function Backtest() {
                       <TableHead className="text-[10px] uppercase tracking-widest text-muted-foreground">
                         #
                       </TableHead>
+                      {isPortfolio && (
+                        <TableHead className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                          Coin
+                        </TableHead>
+                      )}
                       <TableHead className="text-[10px] uppercase tracking-widest text-muted-foreground">
                         Entry Price
                       </TableHead>
@@ -763,15 +1006,20 @@ export default function Backtest() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {results.trades.map((trade, idx) => (
+                    {activeResults.trades.map((trade, idx) => (
                       <TableRow
-                        key={`${trade.entryIndex}-${trade.exitIndex}`}
+                        key={`${trade.coin ?? ""}-${trade.entryIndex}-${trade.exitIndex}`}
                         data-ocid={`backtest.trade.item.${idx + 1}`}
                         className="border-border"
                       >
                         <TableCell className="mono text-xs text-muted-foreground">
                           {idx + 1}
                         </TableCell>
+                        {isPortfolio && (
+                          <TableCell className="mono text-xs font-bold text-foreground">
+                            {trade.coin}
+                          </TableCell>
+                        )}
                         <TableCell className="mono text-xs">
                           ${trade.entryPrice.toFixed(2)}
                         </TableCell>
@@ -804,10 +1052,10 @@ export default function Backtest() {
                         </TableCell>
                       </TableRow>
                     ))}
-                    {results.trades.length === 0 && (
+                    {activeResults.trades.length === 0 && (
                       <TableRow>
                         <TableCell
-                          colSpan={7}
+                          colSpan={isPortfolio ? 8 : 7}
                           className="py-8 text-center text-sm text-muted-foreground"
                           data-ocid="backtest.trade.empty_state"
                         >
