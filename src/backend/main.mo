@@ -115,7 +115,7 @@ actor {
     apiKey = "";
     apiSecret = "";
     capital = 10000.0;
-    maxTrades = 3;
+    maxTrades = 10;
   };
 
   let trades = Map.empty<Nat, Trade>();

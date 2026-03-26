@@ -353,7 +353,7 @@ export default function Dashboard() {
           index={3}
           label="Open Trades"
           value={botState ? String(Number(botState.openTradesCount)) : "—"}
-          sub="Max 5 concurrent"
+          sub="Max 10 concurrent"
           icon={BarChart2}
           trend="neutral"
         />

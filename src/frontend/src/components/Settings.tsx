@@ -377,7 +377,7 @@ export default function Settings() {
                 <span className="text-primary">▸</span> Max 3% risk per trade
               </li>
               <li className="flex gap-1.5">
-                <span className="text-primary">▸</span> Max 5 open trades
+                <span className="text-primary">▸</span> Max 10 open trades
               </li>
               <li className="flex gap-1.5">
                 <span className="text-primary">▸</span> Stop after 5 consecutive

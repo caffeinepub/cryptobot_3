@@ -222,7 +222,7 @@ function runSimulation(
 
       if (
         consecutiveLosses < 5 &&
-        openPositions.length < 5 &&
+        openPositions.length < 10 &&
         e50 > e200 &&
         price > e50 &&
         price > breakoutLevel &&
@@ -234,7 +234,7 @@ function runSimulation(
         r <= 65 &&
         i - lastTradeIndex > 5
       ) {
-        const size = balance * 0.04;
+        const size = balance * 0.07;
         const effectiveEntryPrice = price * (1 + SLIPPAGE);
         balance -= size;
         balance -= size * TRADING_FEE;
@@ -688,8 +688,8 @@ export default function Backtest() {
               "Starting Balance",
               isPortfolio ? "$10,000 ($5,000 each)" : "$10,000",
             ],
-            ["Position Size", "4% of balance"],
-            ["Max Open Trades", "5"],
+            ["Position Size", "7% of balance"],
+            ["Max Open Trades", "10"],
             ["Entry RSI", "45 – 65"],
             ["Breakout Filter", "Close > 8-Candle HIGH"],
             ["Min Breakout Margin", "0.2% above high"],
