@@ -220,15 +220,10 @@ function runSimulation(
         3;
       const avgBodyPctLast3 = avgBodyLast3 / price;
 
-      const prevGap = ema50[i - 1] - ema200[i - 1];
-      const currGap = e50 - e200;
-
       if (
         consecutiveLosses < 5 &&
         openPositions.length < 5 &&
         e50 > e200 &&
-        currGap / e200 >= 0.005 &&
-        currGap > prevGap &&
         price > e50 &&
         price > breakoutLevel &&
         price >= breakoutLevel * 1.002 &&
@@ -702,8 +697,6 @@ export default function Backtest() {
             ["Choppy Filter", "Last 3 candles avg body ≥ 0.15%"],
             ["Candle Type", "Bullish (Close > Open)"],
             ["Trend Filter", "EMA50 > EMA200"],
-            ["EMA Min Gap", "≥ 0.5% (strong trend)"],
-            ["EMA Spread", "Widening (gap > prev gap)"],
             ["Momentum", "Price > EMA50"],
             ["Trailing Stop", "+3% activate"],
             ["Trail Distance", "1.5% below high"],
