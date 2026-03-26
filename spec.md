@@ -1,32 +1,24 @@
 # CryptoBot
 
 ## Current State
-The Backtest tab runs simulation on a single selected coin (BTC or ETH). SOL is disabled with a warning banner. Results show stats for one coin at a time. The simulation uses a shared $10,000 starting balance and 3% position sizing per trade.
+Backtest simulation uses `e50 > e200` as the only trend filter. No minimum gap or spread-widening check exists. The Simulation Parameters panel shows "Trend Filter: EMA50 > EMA200" only.
 
 ## Requested Changes (Diff)
 
 ### Add
-- Portfolio mode: run all 3 coins (BTC, ETH, SOL) simultaneously in one backtest
-- Parallel candle fetching for all 3 coins when Portfolio mode is selected
-- Combined portfolio metrics: total profit, trades, win rate, drawdown, profit factor computed across all coins merged
-- Per-coin breakdown section showing individual stats (profit, trades, win rate) for each coin
-- Combined trade log with a Coin column to distinguish trades
-- Re-enable SOL in the coin selector (both individual and portfolio modes)
+- Minimum EMA gap filter: `(e50 - e200) / e200 >= 0.005` — EMA50 must be at least 0.5% above EMA200 before any entry
+- Spread-widening filter: current EMA50–EMA200 gap must be greater than the previous candle's gap (trend must be strengthening, not converging)
+- Two new entries in the Simulation Parameters panel: "EMA Min Gap" and "EMA Spread"
 
 ### Modify
-- Coin selector: add a "Portfolio" toggle option alongside BTC / ETH / SOL
-- When Portfolio is selected: fetch all 3 coins in parallel, run each simulation on $10,000/3 ≈ $3,333 starting balance, merge results
-- Progress bar: show aggregate progress across all 3 fetch operations when in portfolio mode
-- Simulation Parameters panel: show "Mode: Portfolio (BTC + ETH + SOL)" when applicable
-- Trade log: add Coin column when in portfolio mode
+- `runSimulation` entry condition block in Backtest.tsx to include the two new filters
+- Simulation Parameters panel labels to reflect the new filters
 
 ### Remove
-- SOL disabled state / warning banner (SOL is now allowed in backtest)
+- Nothing removed
 
 ## Implementation Plan
-1. Add `"PORTFOLIO"` as a valid selection in the coin toggle (Backtest.tsx)
-2. In portfolio mode, fetch candles for all 3 symbols in parallel with aggregated progress
-3. Run `runSimulation` on each coin's candles with `STARTING_BALANCE / 3` per coin
-4. Merge all `closedTrades` arrays (add `coin` field to Trade type), compute combined portfolio stats
-5. Display combined summary stats, per-coin breakdown cards, and merged trade log with Coin column
-6. Remove SOL disabled styling and banner
+1. In `runSimulation`, pre-compute `prevGap = ema50[i-1] - ema200[i-1]` and `currGap = e50 - e200` each candle.
+2. Add `currGap / e200 >= 0.005` to entry condition (0.5% minimum spread).
+3. Add `currGap > prevGap` to entry condition (spread must be widening).
+4. Add two rows to the Simulation Parameters grid: "EMA Min Gap" = "≥ 0.5% (strong trend)" and "EMA Spread" = "Widening (gap > prev gap)".
