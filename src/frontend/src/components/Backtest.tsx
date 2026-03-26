@@ -205,7 +205,7 @@ function runSimulation(candles: Candle[]): BacktestResults {
         price > e50 && // price above EMA50
         price > prev5High && // breakout above last 3–5 candle high
         r >= 45 &&
-        r <= 70 && // RSI between 45 and 70
+        r <= 65 && // RSI between 45 and 65
         i - lastTradeIndex > 5 // cooldown
       ) {
         const size = balance * 0.01;
@@ -489,8 +489,8 @@ export default function Backtest() {
             ["Starting Balance", "$10,000"],
             ["Position Size", "1% of balance"],
             ["Max Open Trades", "5"],
-            ["Entry RSI", "45 – 70"],
-            ["Breakout Filter", "Price > 5-Candle High"],
+            ["Entry RSI", "45 – 65"],
+            ["Breakout Filter", "Close > 5-Candle Close High"],
             ["Trend Filter", "EMA50 > EMA200"],
             ["Momentum", "Price > EMA50"],
             ["Trailing Stop", "+3% activate"],
