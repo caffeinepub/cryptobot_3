@@ -163,7 +163,7 @@ function runSimulation(
 
       if (price > pos.highestPrice) pos.highestPrice = price;
 
-      if (price >= pos.entryPrice * 1.035) exitReason = "TP";
+      if (price >= pos.entryPrice * 1.05) exitReason = "TP";
       else if (price <= pos.entryPrice * 0.965) exitReason = "SL";
       else {
         const profitPct = (price - pos.entryPrice) / pos.entryPrice;
@@ -696,7 +696,7 @@ export default function Backtest() {
             ["RSI Filter", "40–55 (pullback zone)"],
             ["Trailing Stop", "+2% activate"],
             ["Trail Distance", "2.2% below high"],
-            ["Take Profit", "+3.5%"],
+            ["Take Profit", "+5%"],
             ["Stop Loss", "-3.5%"],
             ["Trading Fee", "0.1% / side"],
             ["Slippage", "0.05% / side"],
