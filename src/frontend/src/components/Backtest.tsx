@@ -171,11 +171,11 @@ function runSimulation(
 
       if (price > pos.highestPrice) pos.highestPrice = price;
 
-      if (price >= pos.entryPrice * 1.04) exitReason = "TP";
+      if (price >= pos.entryPrice * 1.055) exitReason = "TP";
       else if (price <= pos.entryPrice * 0.965) exitReason = "SL";
       else {
         const profitPct = (price - pos.entryPrice) / pos.entryPrice;
-        if (profitPct >= 0.03 && price <= pos.highestPrice * 0.985) {
+        if (profitPct >= 0.02 && price <= pos.highestPrice * 0.978) {
           exitReason = "TRAIL";
         }
       }
@@ -227,9 +227,9 @@ function runSimulation(
         e50 > e200 &&
         price > e50 &&
         price > breakoutLevel &&
-        price >= breakoutLevel * 1.002 &&
+        price >= breakoutLevel * 1.0035 &&
         closes[i] > opens[i] &&
-        bodyPct >= 0.005 &&
+        bodyPct >= 0.007 &&
         avgBodyPctLast3 >= 0.0015 &&
         r >= 45 &&
         r <= 65 &&
@@ -690,15 +690,15 @@ export default function Backtest() {
             ["Max Open Trades", "10"],
             ["Entry RSI", "45 – 65"],
             ["Breakout Filter", "Close > 5-Candle HIGH"],
-            ["Min Breakout Margin", "0.2% above high"],
-            ["Momentum Body", "Body ≥ 0.5% (clearly bullish)"],
+            ["Min Breakout Margin", "0.35% above high"],
+            ["Momentum Body", "Body ≥ 0.7% (clearly bullish)"],
             ["Choppy Filter", "Last 3 candles avg body ≥ 0.15%"],
             ["Candle Type", "Bullish (Close > Open)"],
             ["Trend Filter", "EMA50 > EMA200"],
             ["Momentum", "Price > EMA50"],
-            ["Trailing Stop", "+3% activate"],
-            ["Trail Distance", "1.5% below high"],
-            ["Take Profit", "+4.0%"],
+            ["Trailing Stop", "+2% activate"],
+            ["Trail Distance", "2.2% below high"],
+            ["Take Profit", "+5.5%"],
             ["Stop Loss", "-3.5%"],
             ["Trading Fee", "0.1% / side"],
             ["Slippage", "0.05% / side"],
