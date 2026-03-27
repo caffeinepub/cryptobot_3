@@ -75,7 +75,7 @@ function SimpleLineChart({
   ema200,
 }: { price: number; ema50: number; ema200: number }) {
   const points = useMemo(() => {
-    const base = price * 0.97;
+    const base = price * 0.95;
     const range = price * 0.07;
     const result: number[] = [];
     for (let i = 0; i < 60; i++) {

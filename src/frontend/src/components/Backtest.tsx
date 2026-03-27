@@ -60,41 +60,15 @@ interface BacktestResults {
   trades: Trade[];
 }
 
-interface CoinBreakdown {
-  coin: string;
-  numTrades: number;
-  winRate: number;
-  totalProfitPct: number;
-  finalBalance: number;
-  coinNetPnl: number;
-}
-
-interface PortfolioResults extends BacktestResults {
-  perCoin: CoinBreakdown[];
-}
-
-type Coin = "ETH" | "ADA";
-type Selection = Coin | "PORTFOLIO";
+type Coin = "ETH";
+type Selection = Coin;
 
 const COIN_SYMBOLS: Record<Coin, string> = {
   ETH: "ETHUSDT",
-  ADA: "ADAUSDT",
 };
 
-const ALL_COINS: Coin[] = ["ETH", "ADA"];
-const PORTFOLIO_COINS: Coin[] = ["ETH", "ADA"];
-// Kept for UI display only — not used in simulation logic
-const PORTFOLIO_WEIGHTS: Record<string, number> = {
-  ETH: 0.5,
-  ADA: 0.5,
-};
+const ALL_COINS: Coin[] = ["ETH"];
 const STARTING_BALANCE = 10000;
-
-// Portfolio selection: per-coin max concurrent trades
-const MAX_TRADES_PER_COIN: Record<string, number> = {
-  ETH: 5,
-  ADA: 5,
-};
 
 // ---- Indicator calculations ----
 
@@ -177,13 +151,16 @@ function runSimulation(
 
       if (price > pos.highestPrice) pos.highestPrice = price;
 
-      if (price >= pos.entryPrice * 1.07) exitReason = "TP";
-      else if (price <= pos.entryPrice * 0.97) exitReason = "SL";
+      if (price >= pos.entryPrice * 1.06) exitReason = "TP";
+      else if (price <= pos.entryPrice * 0.96) exitReason = "SL";
       else {
         const profitPct = (price - pos.entryPrice) / pos.entryPrice;
-        // Break-even trailing: if profit >= 3%, stop loss moves to entry price
-        if (profitPct >= 0.03 && price <= pos.entryPrice) {
-          exitReason = "TRAIL";
+        // Trail 2% below recent high, activates at +2% profit
+        if (profitPct >= 0.02) {
+          const trailStop = pos.highestPrice * 0.98;
+          if (price <= trailStop) {
+            exitReason = "TRAIL";
+          }
         }
       }
 
@@ -219,13 +196,13 @@ function runSimulation(
 
       // Pullback entry strategy:
       // trend_up = EMA50 > EMA200
-      // pullback = close <= EMA50 * 1.005 (within 0.5%)
+      // pullback = close <= EMA50 * 1.015 (within 1.5%)
       // rsi_ok = RSI > 40 AND RSI < 65
       // bullish = close > open
       const rsiVal = rsi14[i];
       const trendUp = e50 > e200;
-      const pullback = candle.close <= e50 * 1.005;
-      const rsiOk = rsiVal > 40 && rsiVal < 65;
+      const pullback = candle.close <= e50 * 1.015;
+      const rsiOk = rsiVal > 30 && rsiVal < 65;
       const bullishCandle = candle.close > candle.open;
       if (
         trendUp &&
@@ -305,244 +282,6 @@ function runSimulation(
     profitFactor,
     avgDuration,
     trades: closedTrades,
-  };
-}
-
-// ---- Portfolio simulation (shared balance) ----
-
-function runPortfolioSimulation(
-  allCandlesByCoins: { coin: string; candles: Candle[] }[],
-  startingBalance = STARTING_BALANCE,
-): PortfolioResults {
-  const TRADING_FEE = 0.001;
-  const SLIPPAGE = 0.0005;
-  const START_INDEX = 210;
-
-  // Precompute indicators for each coin
-  const coinData = allCandlesByCoins.map(({ coin, candles }) => {
-    const closes = candles.map((c) => c.close);
-    return {
-      coin,
-      candles,
-      closes,
-      ema50: calcEMA(closes, 50),
-      ema200: calcEMA(closes, 200),
-      rsi14: calcRSI(closes),
-    };
-  });
-
-  // Build merged event list sorted by time
-  interface Event {
-    time: number;
-    coinIdx: number;
-    candleIdx: number;
-  }
-  const events: Event[] = [];
-  for (let ci = 0; ci < coinData.length; ci++) {
-    const { candles } = coinData[ci];
-    for (let i = START_INDEX; i < candles.length; i++) {
-      events.push({ time: candles[i].time, coinIdx: ci, candleIdx: i });
-    }
-  }
-  events.sort((a, b) => a.time - b.time || a.coinIdx - b.coinIdx);
-
-  // Shared state
-  let balance = startingBalance;
-  interface OpenPos {
-    coin: string;
-    entryIndex: number;
-    entryPrice: number;
-    highestPrice: number;
-    size: number;
-  }
-  const openPositions: OpenPos[] = [];
-  const closedTrades: Trade[] = [];
-  let consecutiveLosses = 0;
-  const lastTradeIndex: Record<string, number> = {};
-  for (const { coin } of coinData) lastTradeIndex[coin] = -1;
-
-  // Drawdown tracking
-  let peakBalance = startingBalance;
-  let maxDrawdown = 0;
-
-  const getEquity = () =>
-    balance + openPositions.reduce((s, p) => s + p.size, 0);
-
-  for (const ev of events) {
-    const { coinIdx, candleIdx: i } = ev;
-    const cd = coinData[coinIdx];
-    const { coin, candles, closes, ema50, ema200, rsi14 } = cd;
-    const price = closes[i];
-
-    // --- Process exits for this coin ---
-    for (let p = openPositions.length - 1; p >= 0; p--) {
-      const pos = openPositions[p];
-      if (pos.coin !== coin) continue;
-
-      let exitReason: "TP" | "SL" | "TRAIL" | null = null;
-      if (price > pos.highestPrice) pos.highestPrice = price;
-
-      if (price >= pos.entryPrice * 1.07) exitReason = "TP";
-      else if (price <= pos.entryPrice * 0.97) exitReason = "SL";
-      else {
-        const profitPct = (price - pos.entryPrice) / pos.entryPrice;
-        // Break-even trailing: if profit >= 3%, stop loss moves to entry price
-        if (profitPct >= 0.03 && price <= pos.entryPrice) {
-          exitReason = "TRAIL";
-        }
-      }
-
-      if (exitReason) {
-        const effectiveExitPrice = price * (1 - SLIPPAGE);
-        const pnlPct = (effectiveExitPrice - pos.entryPrice) / pos.entryPrice;
-        let pnlDollar = pos.size * pnlPct;
-        const exitFee = (pos.size + Math.max(0, pnlDollar)) * TRADING_FEE;
-        pnlDollar -= exitFee;
-        balance += pos.size + pnlDollar;
-
-        if (pnlDollar < 0) consecutiveLosses++;
-        else consecutiveLosses = 0;
-
-        closedTrades.push({
-          entryIndex: pos.entryIndex,
-          entryPrice: pos.entryPrice,
-          exitPrice: effectiveExitPrice,
-          exitIndex: i,
-          pnlDollar,
-          pnlPct: pnlPct * 100,
-          reason: exitReason,
-          size: pos.size,
-          coin,
-        });
-
-        openPositions.splice(p, 1);
-
-        // Update drawdown
-        const equity = getEquity();
-        if (equity > peakBalance) peakBalance = equity;
-        const dd = (peakBalance - equity) / peakBalance;
-        if (dd > maxDrawdown) maxDrawdown = dd;
-      }
-    }
-
-    // --- Process entry for this coin ---
-    if (i > START_INDEX + 20) {
-      const candle = candles[i];
-      const e50 = ema50[i];
-      const e200 = ema200[i];
-      const rsiVal = rsi14[i];
-
-      // Per-coin open trade count
-      const coinOpenCount = openPositions.filter((p) => p.coin === coin).length;
-      const maxForCoin = MAX_TRADES_PER_COIN[coin] ?? 2;
-
-      // trend_up = EMA50 > EMA200
-      // pullback = close <= EMA50 * 1.005 (within 0.5%)
-      // rsi_ok = RSI > 40 AND RSI < 65
-      // bullish = close > open
-      const trendUp = e50 > e200;
-      const pullback = candle.close <= e50 * 1.005;
-      const rsiOk = rsiVal > 40 && rsiVal < 65;
-      const bullishCandle = candle.close > candle.open;
-
-      if (
-        trendUp &&
-        pullback &&
-        rsiOk &&
-        bullishCandle &&
-        consecutiveLosses < 5 &&
-        openPositions.length < 10 &&
-        coinOpenCount < maxForCoin &&
-        i - lastTradeIndex[coin] > 3
-      ) {
-        // Position size: 9% of total portfolio equity
-        const totalEquity = getEquity();
-        const size = totalEquity * 0.09;
-
-        if (size <= balance) {
-          const effectiveEntryPrice = price * (1 + SLIPPAGE);
-          balance -= size;
-          balance -= size * TRADING_FEE;
-          openPositions.push({
-            coin,
-            entryIndex: i,
-            entryPrice: effectiveEntryPrice,
-            highestPrice: price,
-            size,
-          });
-          lastTradeIndex[coin] = i;
-        }
-      }
-    }
-  }
-
-  // Force-close remaining open positions at each coin's last price
-  for (let p = openPositions.length - 1; p >= 0; p--) {
-    const pos = openPositions[p];
-    const cd = coinData.find((d) => d.coin === pos.coin);
-    if (!cd) continue;
-    const lastPrice = cd.closes[cd.closes.length - 1];
-    const effectiveExitPrice = lastPrice * (1 - SLIPPAGE);
-    const pnlPct = (effectiveExitPrice - pos.entryPrice) / pos.entryPrice;
-    let pnlDollar = pos.size * pnlPct;
-    const exitFee = (pos.size + Math.max(0, pnlDollar)) * TRADING_FEE;
-    pnlDollar -= exitFee;
-    balance += pos.size + pnlDollar;
-    closedTrades.push({
-      entryIndex: pos.entryIndex,
-      entryPrice: pos.entryPrice,
-      exitPrice: effectiveExitPrice,
-      exitIndex: cd.candles.length - 1,
-      pnlDollar,
-      pnlPct: pnlPct * 100,
-      reason: "TRAIL",
-      size: pos.size,
-      coin: pos.coin,
-    });
-    openPositions.splice(p, 1);
-  }
-
-  // Summary stats
-  const wins = closedTrades.filter((t) => t.pnlDollar > 0);
-  const losses = closedTrades.filter((t) => t.pnlDollar <= 0);
-  const grossProfit = wins.reduce((s, t) => s + t.pnlDollar, 0);
-  const grossLoss = Math.abs(losses.reduce((s, t) => s + t.pnlDollar, 0));
-  const profitFactor = grossLoss === 0 ? grossProfit : grossProfit / grossLoss;
-  const avgDuration =
-    closedTrades.length > 0
-      ? closedTrades.reduce((s, t) => s + (t.exitIndex - t.entryIndex), 0) /
-        closedTrades.length
-      : 0;
-
-  // Per-coin breakdown
-  const numCoins = allCandlesByCoins.length;
-  const perCoin: CoinBreakdown[] = allCandlesByCoins.map(({ coin }) => {
-    const coinTrades = closedTrades.filter((t) => t.coin === coin);
-    const coinWins = coinTrades.filter((t) => t.pnlDollar > 0);
-    const coinNetPnl = coinTrades.reduce((s, t) => s + t.pnlDollar, 0);
-    return {
-      coin,
-      numTrades: coinTrades.length,
-      winRate:
-        coinTrades.length > 0 ? (coinWins.length / coinTrades.length) * 100 : 0,
-      totalProfitPct: (coinNetPnl / startingBalance) * 100,
-      finalBalance: startingBalance / numCoins + coinNetPnl,
-      coinNetPnl,
-    };
-  });
-
-  return {
-    startingBalance,
-    finalBalance: balance,
-    totalProfitPct: ((balance - startingBalance) / startingBalance) * 100,
-    numTrades: closedTrades.length,
-    winRate:
-      closedTrades.length > 0 ? (wins.length / closedTrades.length) * 100 : 0,
-    maxDrawdown: maxDrawdown * 100,
-    profitFactor,
-    avgDuration,
-    trades: closedTrades,
-    perCoin,
   };
 }
 
@@ -635,50 +374,6 @@ function StatCard({
   );
 }
 
-// ---- Per-coin mini card ----
-
-function CoinCard({
-  breakdown,
-  index,
-}: {
-  breakdown: CoinBreakdown;
-  index: number;
-}) {
-  const profitColor =
-    breakdown.totalProfitPct >= 0 ? "text-success" : "text-danger";
-  const netPnl = breakdown.coinNetPnl;
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.35, delay: 0.55 + index * 0.08 }}
-      className="card-panel p-4 flex flex-col gap-2"
-    >
-      <div className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
-        {breakdown.coin}/USDT
-      </div>
-      <div className={cn("mono text-xl font-bold", profitColor)}>
-        {breakdown.totalProfitPct >= 0 ? "+" : ""}
-        {breakdown.totalProfitPct.toFixed(2)}%
-      </div>
-      <div className="flex flex-col gap-0.5 text-[11px] text-muted-foreground">
-        <span>{breakdown.numTrades} trades</span>
-        <span>Win rate: {breakdown.winRate.toFixed(1)}%</span>
-        <span
-          className={cn("mono", netPnl >= 0 ? "text-success" : "text-danger")}
-        >
-          Net: {netPnl >= 0 ? "+" : ""}$
-          {netPnl.toLocaleString("en-US", {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2,
-          })}
-        </span>
-        <span className="text-[10px] opacity-60">Contribution</span>
-      </div>
-    </motion.div>
-  );
-}
-
 // ---- Main component ----
 
 export default function Backtest() {
@@ -688,8 +383,6 @@ export default function Backtest() {
   const [progress, setProgress] = useState(0);
   const [progressText, setProgressText] = useState("");
   const [results, setResults] = useState<BacktestResults | null>(null);
-  const [portfolioResults, setPortfolioResults] =
-    useState<PortfolioResults | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
   const [selectedCoin, setSelectedCoin] = useState<Selection>("ETH");
   const [resetKey, setResetKey] = useState(0);
@@ -699,19 +392,14 @@ export default function Backtest() {
   // Clear cached simulation data on mount
   useEffect(() => {
     setResults(null);
-    setPortfolioResults(null);
     setStatus("idle");
   }, []);
 
-  const isPortfolio = selectedCoin === "PORTFOLIO";
-  const pairLabel = isPortfolio
-    ? "ETH, ADA (shared $10,000 balance)"
-    : `${selectedCoin}/USDT`;
+  const pairLabel = "ETH/USDT";
 
   const handleReset = () => {
     abortRef.current?.abort();
     setResults(null);
-    setPortfolioResults(null);
     setStatus("idle");
     setErrorMsg("");
     setProgress(0);
@@ -724,100 +412,34 @@ export default function Backtest() {
     setProgress(0);
     setProgressText("Fetching data...");
     setResults(null);
-    setPortfolioResults(null);
     setErrorMsg("");
 
     abortRef.current = new AbortController();
     const signal = abortRef.current.signal;
 
     try {
-      if (isPortfolio) {
-        const coinProgress: Record<string, { batch: number; total: number }> =
-          {};
-        for (const coin of PORTFOLIO_COINS) {
-          coinProgress[coin] = { batch: 0, total: 1 };
-        }
+      const symbol = COIN_SYMBOLS[selectedCoin];
+      const candles = await fetchAllCandles(
+        symbol,
+        (batch, total) => {
+          setProgress(Math.round((batch / total) * 80));
+          setProgressText(`Fetching data... batch ${batch}/${total}`);
+        },
+        signal,
+      );
 
-        const updatePortfolioProgress = () => {
-          let totalBatches = 0;
-          let doneBatches = 0;
-          for (const coin of PORTFOLIO_COINS) {
-            totalBatches += coinProgress[coin].total;
-            doneBatches += coinProgress[coin].batch;
-          }
-          const pct =
-            totalBatches > 0
-              ? Math.round((doneBatches / totalBatches) * 80)
-              : 0;
-          setProgress(pct);
-        };
+      setStatus("simulating");
+      setProgress(85);
+      setProgressText(
+        `Running simulation on ${candles.length.toLocaleString()} candles...`,
+      );
+      await new Promise((r) => setTimeout(r, 30));
 
-        // Fetch coins sequentially to avoid rate limits
-        const allCandlesResult: Candle[][] = [];
-        for (let i = 0; i < PORTFOLIO_COINS.length; i++) {
-          const coin = PORTFOLIO_COINS[i];
-          setProgressText(
-            `Fetching ${coin} data... (${i + 1}/${PORTFOLIO_COINS.length})`,
-          );
-          const candles = await fetchAllCandles(
-            COIN_SYMBOLS[coin],
-            (batch, total) => {
-              coinProgress[coin] = { batch, total };
-              updatePortfolioProgress();
-            },
-            signal,
-          );
-          allCandlesResult.push(candles);
-          // Small delay between coins to respect rate limits
-          if (i < PORTFOLIO_COINS.length - 1) {
-            await new Promise((r) => setTimeout(r, 200));
-          }
-        }
-
-        setStatus("simulating");
-        setProgress(85);
-        setProgressText(
-          `Running shared portfolio simulation on ${PORTFOLIO_COINS.join(", ")}...`,
-        );
-        await new Promise((r) => setTimeout(r, 30));
-
-        const portfolioRes = runPortfolioSimulation(
-          PORTFOLIO_COINS.map((coin, idx) => ({
-            coin,
-            candles: allCandlesResult[idx],
-          })),
-          STARTING_BALANCE,
-        );
-
-        setProgress(100);
-        setProgressText("Done!");
-        setPortfolioResults(portfolioRes);
-        setStatus("done");
-      } else {
-        // --- Single coin mode ---
-        const symbol = COIN_SYMBOLS[selectedCoin as Coin];
-        const candles = await fetchAllCandles(
-          symbol,
-          (batch, total) => {
-            setProgress(Math.round((batch / total) * 80));
-            setProgressText(`Fetching data... batch ${batch}/${total}`);
-          },
-          signal,
-        );
-
-        setStatus("simulating");
-        setProgress(85);
-        setProgressText(
-          `Running simulation on ${candles.length.toLocaleString()} candles...`,
-        );
-        await new Promise((r) => setTimeout(r, 30));
-
-        const res = runSimulation(candles);
-        setProgress(100);
-        setProgressText("Done!");
-        setResults(res);
-        setStatus("done");
-      }
+      const res = runSimulation(candles);
+      setProgress(100);
+      setProgressText("Done!");
+      setResults(res);
+      setStatus("done");
     } catch (e: unknown) {
       if ((e as Error)?.message === "Aborted") {
         setStatus("idle");
@@ -834,8 +456,6 @@ export default function Backtest() {
   };
 
   const isRunning = status === "fetching" || status === "simulating";
-
-  const activeResults = isPortfolio ? portfolioResults : results;
 
   const showResetBanner = lastReset !== null && status === "idle";
 
@@ -861,9 +481,6 @@ export default function Backtest() {
     return null;
   };
 
-  // Suppress unused warning — PORTFOLIO_WEIGHTS kept for potential future UI use
-  void PORTFOLIO_WEIGHTS;
-
   return (
     <div className="space-y-6" data-ocid="backtest.panel" key={resetKey}>
       {/* Header */}
@@ -872,7 +489,7 @@ export default function Backtest() {
           Backtest
         </h1>
         <p className="mt-0.5 text-sm text-muted-foreground">
-          Simulate the strategy on 5 years of {pairLabel} 15m historical data
+          Simulate the strategy on 5 years of ETH/USDT 15m historical data
         </p>
       </div>
 
@@ -888,25 +505,21 @@ export default function Backtest() {
         </div>
         <div className="grid grid-cols-2 gap-3 text-xs md:grid-cols-4">
           {[
-            [
-              "Symbols",
-              isPortfolio ? "ETH, ADA (shared $10,000 balance)" : pairLabel,
-            ],
+            ["Symbols", "ETH/USDT"],
             ["Timeframe", "15m"],
             ["Period", "5 years"],
             ["Starting Balance", "$10,000"],
             ["Position Size", "9% of total equity"],
-            ["Max Open Trades", "10 (global) · ETH: 5 · ADA: 5"],
-            ["Asset Priority", "ETH (1st) · ADA (2nd)"],
+            ["Max Open Trades", "10 (global)"],
             ["Strategy", "Pullback in Uptrend"],
             ["Trend Filter", "EMA50 > EMA200"],
-            ["Entry", "Close ≤ EMA50 × 1.005 (within 0.5% of EMA50)"],
+            ["Entry", "Close ≤ EMA50 × 1.015 (within 1.5% of EMA50)"],
             ["Trigger", "Bullish candle (close > open)"],
-            ["RSI Filter", "40–65"],
-            ["Trailing Stop", "Break even at +3%"],
+            ["RSI Filter", "30–65"],
+            ["Trailing Stop", "Trail 2% below high, activate at +2%"],
             ["Trail Distance", "Stop moves to entry price"],
-            ["Take Profit", "+7%"],
-            ["Stop Loss", "-3%"],
+            ["Take Profit", "+6%"],
+            ["Stop Loss", "-4%"],
             ["Trading Fee", "0.1% / side"],
             ["Slippage", "0.05% / side"],
           ].map(([k, v]) => (
@@ -956,33 +569,7 @@ export default function Backtest() {
                 {coin}
               </ToggleGroupItem>
             ))}
-            <ToggleGroupItem
-              value="PORTFOLIO"
-              data-ocid="backtest.portfolio.tab"
-              className={cn(
-                "mono h-9 rounded-lg border px-4 text-xs font-bold tracking-wider transition-all",
-                selectedCoin === "PORTFOLIO"
-                  ? "border-primary/40 bg-primary/10 text-primary"
-                  : "border-border bg-muted/20 text-muted-foreground hover:border-border hover:bg-muted/40 hover:text-foreground",
-              )}
-            >
-              Portfolio
-            </ToggleGroupItem>
           </ToggleGroup>
-
-          {isPortfolio && (
-            <motion.div
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.25 }}
-              className="mt-3 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-primary"
-            >
-              Portfolio mode runs ETH and ADA simultaneously with a single
-              shared $10,000 balance. Max 10 open trades across all coins
-              combined. Position size is 9% of total portfolio equity at entry
-              time.
-            </motion.div>
-          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-4">
@@ -1006,7 +593,7 @@ export default function Backtest() {
             ) : (
               <>
                 <FlaskConical className="h-4 w-4" />
-                {isPortfolio ? "Run Portfolio Backtest" : "Run Backtest"}
+                Run Backtest
               </>
             )}
           </Button>
@@ -1035,11 +622,11 @@ export default function Backtest() {
             </div>
           )}
 
-          {status === "done" && activeResults && (
+          {status === "done" && results && (
             <div className="flex items-center gap-2 text-sm text-success">
               <CheckCircle2 className="h-4 w-4" />
-              Simulation complete — {activeResults.numTrades} trades analyzed on{" "}
-              {isPortfolio ? "ETH, ADA" : pairLabel}
+              Simulation complete — {results.numTrades} trades analyzed on{" "}
+              {pairLabel}
             </div>
           )}
 
@@ -1089,7 +676,7 @@ export default function Backtest() {
 
       {/* Results */}
       <AnimatePresence>
-        {status === "done" && activeResults && (
+        {status === "done" && results && (
           <>
             {/* Stat cards */}
             <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
@@ -1102,44 +689,44 @@ export default function Backtest() {
               <StatCard
                 index={1}
                 label="Final Balance"
-                value={`$${activeResults.finalBalance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-                color={activeResults.finalBalance >= 10000 ? "green" : "red"}
+                value={`$${results.finalBalance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                color={results.finalBalance >= 10000 ? "green" : "red"}
               />
               <StatCard
                 index={2}
                 label="Total Profit"
-                value={`${activeResults.totalProfitPct >= 0 ? "+" : ""}${activeResults.totalProfitPct.toFixed(2)}%`}
-                color={activeResults.totalProfitPct >= 0 ? "green" : "red"}
-                sub={`$${(activeResults.finalBalance - 10000).toFixed(2)}`}
+                value={`${results.totalProfitPct >= 0 ? "+" : ""}${results.totalProfitPct.toFixed(2)}%`}
+                color={results.totalProfitPct >= 0 ? "green" : "red"}
+                sub={`$${(results.finalBalance - 10000).toFixed(2)}`}
               />
               <StatCard
                 index={3}
                 label="Num Trades"
-                value={String(activeResults.numTrades)}
+                value={String(results.numTrades)}
                 color="neutral"
                 sub={undefined}
               />
               <StatCard
                 index={4}
                 label="Win Rate"
-                value={`${activeResults.winRate.toFixed(1)}%`}
+                value={`${results.winRate.toFixed(1)}%`}
                 color={
-                  activeResults.winRate >= 55
+                  results.winRate >= 55
                     ? "green"
-                    : activeResults.winRate >= 45
+                    : results.winRate >= 45
                       ? "amber"
                       : "red"
                 }
-                sub={`${Math.round((activeResults.winRate / 100) * activeResults.numTrades)} wins / ${activeResults.numTrades - Math.round((activeResults.winRate / 100) * activeResults.numTrades)} losses`}
+                sub={`${Math.round((results.winRate / 100) * results.numTrades)} wins / ${results.numTrades - Math.round((results.winRate / 100) * results.numTrades)} losses`}
               />
               <StatCard
                 index={5}
                 label="Max Drawdown"
-                value={`-${activeResults.maxDrawdown.toFixed(2)}%`}
+                value={`-${results.maxDrawdown.toFixed(2)}%`}
                 color={
-                  activeResults.maxDrawdown < 10
+                  results.maxDrawdown < 10
                     ? "green"
-                    : activeResults.maxDrawdown < 20
+                    : results.maxDrawdown < 20
                       ? "amber"
                       : "red"
                 }
@@ -1148,11 +735,11 @@ export default function Backtest() {
               <StatCard
                 index={6}
                 label="Profit Factor"
-                value={activeResults.profitFactor.toFixed(2)}
+                value={results.profitFactor.toFixed(2)}
                 color={
-                  activeResults.profitFactor >= 1.5
+                  results.profitFactor >= 1.5
                     ? "green"
-                    : activeResults.profitFactor >= 1
+                    : results.profitFactor >= 1
                       ? "amber"
                       : "red"
                 }
@@ -1161,33 +748,11 @@ export default function Backtest() {
               <StatCard
                 index={7}
                 label="Avg Trade Duration"
-                value={`${activeResults.avgDuration.toFixed(0)} candles`}
-                sub={`\u2248 ${(activeResults.avgDuration * 0.25).toFixed(1)} hours`}
+                value={`${results.avgDuration.toFixed(0)} candles`}
+                sub={`≈ ${(results.avgDuration * 0.25).toFixed(1)} hours`}
                 color="neutral"
               />
             </div>
-
-            {/* Per-coin breakdown (portfolio only) */}
-            {isPortfolio && portfolioResults && (
-              <motion.div
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.35, delay: 0.5 }}
-              >
-                <div className="mb-3 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
-                  Per-Coin Breakdown
-                </div>
-                <div className="grid grid-cols-2 gap-4 sm:grid-cols-2 lg:grid-cols-2">
-                  {portfolioResults.perCoin.map((breakdown, idx) => (
-                    <CoinCard
-                      key={breakdown.coin}
-                      breakdown={breakdown}
-                      index={idx}
-                    />
-                  ))}
-                </div>
-              </motion.div>
-            )}
 
             {/* Trade table */}
             <motion.div
@@ -1199,23 +764,17 @@ export default function Backtest() {
               <div className="border-b border-border px-5 py-4">
                 <div className="flex items-center justify-between">
                   <h2 className="text-[11px] font-bold uppercase tracking-widest text-foreground">
-                    Trade Log — {isPortfolio ? "ETH, ADA" : pairLabel}
+                    Trade Log — {pairLabel}
                   </h2>
                   <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
                     <span className="flex items-center gap-1">
                       <TrendingUp className="h-3 w-3 text-success" />
-                      {
-                        activeResults.trades.filter((t) => t.pnlDollar > 0)
-                          .length
-                      }{" "}
+                      {results.trades.filter((t) => t.pnlDollar > 0).length}{" "}
                       wins
                     </span>
                     <span className="flex items-center gap-1">
                       <TrendingDown className="h-3 w-3 text-danger" />
-                      {
-                        activeResults.trades.filter((t) => t.pnlDollar <= 0)
-                          .length
-                      }{" "}
+                      {results.trades.filter((t) => t.pnlDollar <= 0).length}{" "}
                       losses
                     </span>
                   </div>
@@ -1228,11 +787,6 @@ export default function Backtest() {
                       <TableHead className="text-[10px] uppercase tracking-widest text-muted-foreground">
                         #
                       </TableHead>
-                      {isPortfolio && (
-                        <TableHead className="text-[10px] uppercase tracking-widest text-muted-foreground">
-                          Coin
-                        </TableHead>
-                      )}
                       <TableHead className="text-[10px] uppercase tracking-widest text-muted-foreground">
                         Entry Price
                       </TableHead>
@@ -1254,7 +808,7 @@ export default function Backtest() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {activeResults.trades.map((trade, idx) => (
+                    {results.trades.map((trade, idx) => (
                       <TableRow
                         key={`${trade.coin ?? ""}-${trade.entryIndex}-${trade.exitIndex}`}
                         data-ocid={`backtest.trade.item.${idx + 1}`}
@@ -1263,11 +817,6 @@ export default function Backtest() {
                         <TableCell className="mono text-xs text-muted-foreground">
                           {idx + 1}
                         </TableCell>
-                        {isPortfolio && (
-                          <TableCell className="mono text-xs font-bold text-foreground">
-                            {trade.coin}
-                          </TableCell>
-                        )}
                         <TableCell className="mono text-xs">
                           ${trade.entryPrice.toFixed(2)}
                         </TableCell>
@@ -1300,10 +849,10 @@ export default function Backtest() {
                         </TableCell>
                       </TableRow>
                     ))}
-                    {activeResults.trades.length === 0 && (
+                    {results.trades.length === 0 && (
                       <TableRow>
                         <TableCell
-                          colSpan={isPortfolio ? 8 : 7}
+                          colSpan={7}
                           className="py-8 text-center text-sm text-muted-foreground"
                           data-ocid="backtest.trade.empty_state"
                         >
@@ -1334,8 +883,8 @@ export default function Backtest() {
             Ready to backtest
           </div>
           <div className="mt-1 text-xs text-muted-foreground">
-            Select a coin or run Portfolio mode to simulate the strategy across
-            ETH and ADA with a single shared balance.
+            Select ETH/USDT to simulate the strategy on 5 years of 15m
+            historical data.
           </div>
         </motion.div>
       )}
