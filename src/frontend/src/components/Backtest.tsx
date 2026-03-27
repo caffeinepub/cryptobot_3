@@ -212,6 +212,7 @@ function runSimulation(
         consecutiveLosses < 5 &&
         openPositions.length < 10 &&
         e50 > e200 &&
+        e50 >= e200 * 1.01 &&
         price > e50 &&
         r >= 40 &&
         r <= 55 &&
@@ -692,6 +693,7 @@ export default function Backtest() {
             ["Entry RSI", "40 – 55 (Pullback)"],
             ["Confirmation", "Bullish candle (close > open)"],
             ["Strategy", "Pullback (EMA50 > EMA200 + Price > EMA50)"],
+            ["Trend Strength", "EMA50 ≥ 1% above EMA200"],
             ["Trailing Stop", "+2% activate"],
             ["Trail Distance", "2.2% below high"],
             ["Take Profit", "+5.5%"],
