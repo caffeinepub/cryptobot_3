@@ -218,20 +218,15 @@ function runSimulation(
       const candle = candles[i];
 
       // Pullback entry strategy:
-      // trend_up = EMA50 > EMA200 AND close > EMA50
-      // pullback = low <= EMA50 AND close >= EMA50
-      // rsi_ok = RSI > 45 AND RSI < 60 AND RSI rising
-      // bullish_candle = close > open AND body > 50% of range
+      // trend_up = EMA50 > EMA200
+      // pullback = close <= EMA50 * 1.005 (within 0.5%)
+      // rsi_ok = RSI > 40 AND RSI < 65
+      // bullish = close > open
       const rsiVal = rsi14[i];
-      const prevRsiVal = rsi14[i - 1];
-      const trendUp = e50 > e200 && price > e50;
-      const pullback = candle.low <= e50 && candle.close >= e50;
-      const rsiOk = rsiVal > 45 && rsiVal < 60 && rsiVal > prevRsiVal;
-      const range = candle.high - candle.low;
-      const bullishCandle =
-        candle.close > candle.open &&
-        range > 0 &&
-        candle.close - candle.open > range * 0.5;
+      const trendUp = e50 > e200;
+      const pullback = candle.close <= e50 * 1.005;
+      const rsiOk = rsiVal > 40 && rsiVal < 65;
+      const bullishCandle = candle.close > candle.open;
       if (
         trendUp &&
         pullback &&
@@ -436,24 +431,19 @@ function runPortfolioSimulation(
       const e50 = ema50[i];
       const e200 = ema200[i];
       const rsiVal = rsi14[i];
-      const prevRsiVal = rsi14[i - 1];
 
       // Per-coin open trade count
       const coinOpenCount = openPositions.filter((p) => p.coin === coin).length;
       const maxForCoin = MAX_TRADES_PER_COIN[coin] ?? 2;
 
-      // trend_up = EMA50 > EMA200 AND close > EMA50
-      // pullback = low <= EMA50 AND close >= EMA50
-      // rsi_ok = RSI > 45 AND RSI < 60 AND RSI rising
-      // bullish_candle = close > open AND body > 50% of range
-      const trendUp = e50 > e200 && price > e50;
-      const pullback = candle.low <= e50 && candle.close >= e50;
-      const rsiOk = rsiVal > 45 && rsiVal < 60 && rsiVal > prevRsiVal;
-      const range = candle.high - candle.low;
-      const bullishCandle =
-        candle.close > candle.open &&
-        range > 0 &&
-        candle.close - candle.open > range * 0.5;
+      // trend_up = EMA50 > EMA200
+      // pullback = close <= EMA50 * 1.005 (within 0.5%)
+      // rsi_ok = RSI > 40 AND RSI < 65
+      // bullish = close > open
+      const trendUp = e50 > e200;
+      const pullback = candle.close <= e50 * 1.005;
+      const rsiOk = rsiVal > 40 && rsiVal < 65;
+      const bullishCandle = candle.close > candle.open;
 
       if (
         trendUp &&
@@ -909,10 +899,10 @@ export default function Backtest() {
             ["Max Open Trades", "10 (global) · ETH: 5 · ADA: 5"],
             ["Asset Priority", "ETH (1st) · ADA (2nd)"],
             ["Strategy", "Pullback in Uptrend"],
-            ["Trend Filter", "EMA50 > EMA200 · Close > EMA50"],
-            ["Entry", "Low ≤ EMA50 · Close ≥ EMA50 (pullback touch)"],
-            ["Trigger", "Bullish candle (body > 50% of range)"],
-            ["RSI Filter", "45–60 (rising only)"],
+            ["Trend Filter", "EMA50 > EMA200"],
+            ["Entry", "Close ≤ EMA50 × 1.005 (within 0.5% of EMA50)"],
+            ["Trigger", "Bullish candle (close > open)"],
+            ["RSI Filter", "40–65"],
             ["Trailing Stop", "Break even at +3%"],
             ["Trail Distance", "Stop moves to entry price"],
             ["Take Profit", "+7%"],
