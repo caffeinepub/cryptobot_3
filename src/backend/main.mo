@@ -328,7 +328,7 @@ actor {
     "Manual tick completed";
   };
 
-  // Strategy evaluation — BTC and BNB only
+  // Strategy evaluation — BTC and BNB
   let tradingPairs : [Text] = ["BTCUSDT", "BNBUSDT"];
 
   func performStrategyEvaluation() : async () {

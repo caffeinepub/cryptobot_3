@@ -234,7 +234,7 @@ function runSimulation(
         r <= 65 &&
         i - lastTradeIndex > 5
       ) {
-        const size = balance * 0.07;
+        const size = balance * 0.08;
         const effectiveEntryPrice = price * (1 + SLIPPAGE);
         balance -= size;
         balance -= size * TRADING_FEE;
@@ -490,7 +490,7 @@ export default function Backtest() {
           setProgress(pct);
         };
 
-        const perCoinBalance = STARTING_BALANCE / 2;
+        const perCoinBalance = STARTING_BALANCE / PORTFOLIO_COINS.length;
 
         const allCandlesResult = await Promise.all(
           PORTFOLIO_COINS.map((coin) =>
@@ -507,7 +507,7 @@ export default function Backtest() {
 
         setStatus("simulating");
         setProgress(85);
-        setProgressText("Running portfolio simulation on BTC, BNB...");
+        setProgressText("Running portfolio simulation on BTC and BNB...");
         await new Promise((r) => setTimeout(r, 30));
 
         const allCandles = allCandlesResult;
@@ -683,9 +683,9 @@ export default function Backtest() {
             ["Period", "1 year"],
             [
               "Starting Balance",
-              isPortfolio ? "$10,000 ($5,000 each)" : "$10,000",
+              isPortfolio ? "$10,000 (~$5,000 each)" : "$10,000",
             ],
-            ["Position Size", "7% of balance"],
+            ["Position Size", "8% of balance"],
             ["Max Open Trades", "10"],
             ["Entry RSI", "45 – 65"],
             ["Breakout Filter", "Close > 5-Candle HIGH"],
@@ -769,7 +769,7 @@ export default function Backtest() {
               transition={{ duration: 0.25 }}
               className="mt-3 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-primary"
             >
-              Portfolio mode runs BTC and BNB simultaneously with $5,000
+              Portfolio mode runs BTC and BNB simultaneously with ~$5,000
               allocated to each coin. Results are combined into one performance
               view.
             </motion.div>
@@ -925,7 +925,7 @@ export default function Backtest() {
                 <div className="mb-3 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
                   Per-Coin Breakdown
                 </div>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                   {portfolioResults.perCoin.map((breakdown, idx) => (
                     <CoinCard
                       key={breakdown.coin}
