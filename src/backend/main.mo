@@ -334,7 +334,7 @@ actor {
   func performStrategyEvaluation() : async () {
     for (pair in tradingPairs.vals()) {
       try {
-        let url = "https://api.binance.com/api/v3/klines?symbol=" # pair # "&interval=15m&limit=210";
+        let url = "https://api.binance.com/api/v3/klines?symbol=" # pair # "&interval=1h&limit=210";
         addLog("info", "Fetching market data for " # pair);
         let candleData = await OutCall.httpGetRequest(url, [], transform);
         let _ = candleData;

@@ -96,6 +96,30 @@ function calcEMA(closes: number[], period: number): number[] {
   return ema;
 }
 
+function calcRSI(closes: number[], period = 14): number[] {
+  const rsi: number[] = new Array(closes.length).fill(50);
+  if (closes.length < period + 1) return rsi;
+  let avgGain = 0;
+  let avgLoss = 0;
+  for (let i = 1; i <= period; i++) {
+    const change = closes[i] - closes[i - 1];
+    if (change >= 0) avgGain += change;
+    else avgLoss -= change;
+  }
+  avgGain /= period;
+  avgLoss /= period;
+  rsi[period] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
+  for (let i = period + 1; i < closes.length; i++) {
+    const change = closes[i] - closes[i - 1];
+    const gain = change > 0 ? change : 0;
+    const loss = change < 0 ? -change : 0;
+    avgGain = (avgGain * (period - 1) + gain) / period;
+    avgLoss = (avgLoss * (period - 1) + loss) / period;
+    rsi[i] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
+  }
+  return rsi;
+}
+
 // ---- Simulation ----
 
 function runSimulation(
@@ -109,6 +133,7 @@ function runSimulation(
   const closes = candles.map((c) => c.close);
   const ema50 = calcEMA(closes, 50);
   const ema200 = calcEMA(closes, 200);
+  const rsi14 = calcRSI(closes);
 
   let balance = startingBalance;
   const equityCurve: number[] = [startingBalance];
@@ -138,7 +163,7 @@ function runSimulation(
 
       if (price > pos.highestPrice) pos.highestPrice = price;
 
-      if (price >= pos.entryPrice * 1.055) exitReason = "TP";
+      if (price >= pos.entryPrice * 1.035) exitReason = "TP";
       else if (price <= pos.entryPrice * 0.965) exitReason = "SL";
       else {
         const profitPct = (price - pos.entryPrice) / pos.entryPrice;
@@ -174,18 +199,24 @@ function runSimulation(
       }
     }
 
-    if (i > START_INDEX + 10) {
-      const lookbackHigh = Math.max(
-        ...candles.slice(i - 10, i).map((c) => c.high),
-      );
+    if (i > START_INDEX + 20) {
+      const candle = candles[i];
 
+      // Pullback entry: EMA50 > EMA200 (uptrend), price touches/near EMA50, RSI 40-55, bullish candle confirmation
+      const rsiVal = rsi14[i];
+      const prevPrice = closes[i - 1];
+      const touchedEMA50 = prevPrice <= e50 * 1.005 && prevPrice >= e50 * 0.99;
+      const isBullishCandle = candle.close > candle.open;
       if (
+        e50 > e200 &&
+        touchedEMA50 &&
+        price > closes[i - 1] &&
+        isBullishCandle &&
+        rsiVal >= 40 &&
+        rsiVal <= 55 &&
         consecutiveLosses < 5 &&
         openPositions.length < 10 &&
-        e50 > e200 &&
-        price > e50 &&
-        price > lookbackHigh &&
-        i - lastTradeIndex > 5
+        i - lastTradeIndex > 3
       ) {
         const size = balance * 0.09;
         const effectiveEntryPrice = price * (1 + SLIPPAGE);
@@ -267,7 +298,7 @@ async function fetchAllCandles(
   signal: AbortSignal,
 ): Promise<Candle[]> {
   const MS_PER_5_YEARS = 5 * 365 * 24 * 60 * 60 * 1000;
-  const INTERVAL_MS = 15 * 60 * 1000;
+  const INTERVAL_MS = 60 * 60 * 1000; // 1H candles
   const BATCH = 1000;
   const totalCandles = Math.ceil(MS_PER_5_YEARS / INTERVAL_MS);
   const totalBatches = Math.ceil(totalCandles / BATCH);
@@ -279,7 +310,7 @@ async function fetchAllCandles(
 
   while (startTime < now) {
     if (signal.aborted) throw new Error("Aborted");
-    const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=15m&limit=${BATCH}&startTime=${startTime}`;
+    const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1h&limit=${BATCH}&startTime=${startTime}`;
     const res = await fetch(url, { signal });
     if (!res.ok) throw new Error(`Binance API error: ${res.status}`);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -636,7 +667,7 @@ export default function Backtest() {
           Backtest
         </h1>
         <p className="mt-0.5 text-sm text-muted-foreground">
-          Simulate the strategy on 5 years of {pairLabel} 15m historical data
+          Simulate the strategy on 5 years of {pairLabel} 1H historical data
         </p>
       </div>
 
@@ -653,17 +684,19 @@ export default function Backtest() {
         <div className="grid grid-cols-2 gap-3 text-xs md:grid-cols-4">
           {[
             ["Symbol", isPortfolio ? "BTC (Portfolio)" : pairLabel],
-            ["Timeframe", "15m"],
+            ["Timeframe", "1H"],
             ["Period", "5 years"],
             ["Starting Balance", "$10,000"],
             ["Position Size", "9% of balance"],
             ["Max Open Trades", "10"],
-            ["Strategy", "Trend Breakout (EMA50 > EMA200)"],
-            ["Entry Trigger", "New 10-candle high"],
-            ["Trend Filter", "EMA50 > EMA200 + Price > EMA50"],
+            ["Strategy", "Pullback in Uptrend"],
+            ["Trend Filter", "EMA50 > EMA200"],
+            ["Entry", "Price pulls back to EMA50"],
+            ["Trigger", "Bullish candle after EMA50 touch"],
+            ["RSI Filter", "40–55 (pullback zone)"],
             ["Trailing Stop", "+2% activate"],
             ["Trail Distance", "2.2% below high"],
-            ["Take Profit", "+5.5%"],
+            ["Take Profit", "+3.5%"],
             ["Stop Loss", "-3.5%"],
             ["Trading Fee", "0.1% / side"],
             ["Slippage", "0.05% / side"],
@@ -918,7 +951,7 @@ export default function Backtest() {
                 index={7}
                 label="Avg Trade Duration"
                 value={`${activeResults.avgDuration.toFixed(0)} candles`}
-                sub={`≈ ${((activeResults.avgDuration * 15) / 60).toFixed(1)} hours`}
+                sub={`\u2248 ${(activeResults.avgDuration).toFixed(1)} hours`}
                 color="neutral"
               />
             </div>
@@ -1092,7 +1125,7 @@ export default function Backtest() {
           <div className="mt-1 text-xs text-muted-foreground">
             Click{" "}
             <span className="font-semibold text-success">Run Backtest</span> to
-            fetch 5 years of {pairLabel} 15m candles and simulate the strategy.
+            fetch 5 years of {pairLabel} 1H candles and simulate the strategy.
           </div>
         </motion.div>
       )}
