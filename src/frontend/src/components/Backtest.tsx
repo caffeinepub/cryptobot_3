@@ -205,15 +205,15 @@ function runSimulation(
       // Pullback entry: EMA50 > EMA200 (uptrend), price touches/near EMA50, RSI 40-55, bullish candle confirmation
       const rsiVal = rsi14[i];
       const prevPrice = closes[i - 1];
-      const touchedEMA50 = prevPrice <= e50 * 1.005 && prevPrice >= e50 * 0.99;
+      const touchedEMA50 = prevPrice <= e50 * 1.01 && prevPrice >= e50 * 0.99;
       const isBullishCandle = candle.close > candle.open;
       if (
         e50 > e200 &&
         touchedEMA50 &&
         price > closes[i - 1] &&
         isBullishCandle &&
-        rsiVal >= 40 &&
-        rsiVal <= 55 &&
+        rsiVal >= 35 &&
+        rsiVal <= 60 &&
         consecutiveLosses < 5 &&
         openPositions.length < 10 &&
         i - lastTradeIndex > 3
@@ -691,9 +691,9 @@ export default function Backtest() {
             ["Max Open Trades", "10"],
             ["Strategy", "Pullback in Uptrend"],
             ["Trend Filter", "EMA50 > EMA200"],
-            ["Entry", "Price pulls back to EMA50"],
+            ["Entry", "Price pulls back to within 1% above EMA50"],
             ["Trigger", "Bullish candle after EMA50 touch"],
-            ["RSI Filter", "40–55 (pullback zone)"],
+            ["RSI Filter", "35–60 (relaxed pullback zone)"],
             ["Trailing Stop", "+2% activate"],
             ["Trail Distance", "2.2% below high"],
             ["Take Profit", "+5%"],
