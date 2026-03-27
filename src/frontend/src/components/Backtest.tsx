@@ -18,6 +18,7 @@ import {
   CheckCircle2,
   FlaskConical,
   Loader2,
+  RefreshCw,
   TrendingDown,
   TrendingUp,
   XCircle,
@@ -135,7 +136,6 @@ function runSimulation(
   const SLIPPAGE = 0.0005;
 
   const closes = candles.map((c) => c.close);
-  const opens = candles.map((c) => c.open);
   const ema50 = calcEMA(closes, 50);
   const ema200 = calcEMA(closes, 200);
   const rsi = calcRSI(closes, 14);
@@ -158,10 +158,12 @@ function runSimulation(
   let lastTradeIndex = -1;
 
   for (let i = START_INDEX; i < candles.length; i++) {
+    const candle = candles[i];
     const price = closes[i];
     const e50 = ema50[i];
     const e200 = ema200[i];
     const r = rsi[i];
+    const isBullish = candle.close > candle.open;
 
     for (let p = openPositions.length - 1; p >= 0; p--) {
       const pos = openPositions[p];
@@ -206,32 +208,14 @@ function runSimulation(
     }
 
     if (i > START_INDEX + 5) {
-      const breakoutLevel = Math.max(
-        ...candles.slice(i - 5, i).map((c) => c.high),
-      );
-      const candleBody = Math.abs(closes[i] - opens[i]);
-      const bodyPct = candleBody / opens[i];
-
-      const avgBodyLast3 =
-        (Math.abs(closes[i - 1] - opens[i - 1]) +
-          Math.abs(closes[i - 2] - opens[i - 2]) +
-          Math.abs(closes[i - 3] - opens[i - 3])) /
-        3;
-      const avgBodyPctLast3 = avgBodyLast3 / price;
-
       if (
         consecutiveLosses < 5 &&
         openPositions.length < 10 &&
         e50 > e200 &&
-        price > e200 &&
         price > e50 &&
-        price > breakoutLevel &&
-        price >= breakoutLevel * 1.003 &&
-        closes[i] > opens[i] &&
-        bodyPct >= 0.006 &&
-        avgBodyPctLast3 >= 0.0015 &&
-        r >= 45 &&
-        r <= 65 &&
+        r >= 40 &&
+        r <= 55 &&
+        isBullish &&
         i - lastTradeIndex > 5
       ) {
         const size = balance * 0.09;
@@ -448,6 +432,8 @@ export default function Backtest() {
     useState<PortfolioResults | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
   const [selectedCoin, setSelectedCoin] = useState<Selection>("BTC");
+  const [resetKey, setResetKey] = useState(0);
+  const [lastReset, setLastReset] = useState<Date | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   // Clear cached simulation data on mount
@@ -460,7 +446,19 @@ export default function Backtest() {
   const isPortfolio = selectedCoin === "PORTFOLIO";
   const pairLabel = isPortfolio ? "BTC (Portfolio)" : `${selectedCoin}/USDT`;
 
+  const handleReset = () => {
+    abortRef.current?.abort();
+    setResults(null);
+    setPortfolioResults(null);
+    setStatus("idle");
+    setErrorMsg("");
+    setProgress(0);
+    setLastReset(new Date());
+    setResetKey((prev) => prev + 1);
+  };
+
   const handleRun = async () => {
+    // Hide reset banner once a run starts
     setStatus("fetching");
     setProgress(0);
     setProgressText("Fetching data...");
@@ -637,6 +635,8 @@ export default function Backtest() {
 
   const activeResults = isPortfolio ? portfolioResults : results;
 
+  const showResetBanner = lastReset !== null && status === "idle";
+
   const reasonBadge = (r: "TP" | "SL" | "TRAIL") => {
     if (r === "TP")
       return (
@@ -660,7 +660,7 @@ export default function Backtest() {
   };
 
   return (
-    <div className="space-y-6" data-ocid="backtest.panel">
+    <div className="space-y-6" data-ocid="backtest.panel" key={resetKey}>
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold uppercase tracking-widest text-foreground">
@@ -689,14 +689,9 @@ export default function Backtest() {
             ["Starting Balance", "$10,000"],
             ["Position Size", "9% of balance"],
             ["Max Open Trades", "10"],
-            ["Entry RSI", "45 – 65"],
-            ["Breakout Filter", "Close > 5-Candle HIGH"],
-            ["Min Breakout Margin", "0.30% above high"],
-            ["Momentum Body", "Body ≥ 0.6% (clearly bullish)"],
-            ["Choppy Filter", "Last 3 candles avg body ≥ 0.15%"],
-            ["Candle Type", "Bullish (Close > Open)"],
-            ["Trend Filter", "EMA50 > EMA200 + Price > EMA200"],
-            ["Momentum", "Price > EMA50"],
+            ["Entry RSI", "40 – 55 (Pullback)"],
+            ["Confirmation", "Bullish candle (close > open)"],
+            ["Strategy", "Pullback (EMA50 > EMA200 + Price > EMA50)"],
             ["Trailing Stop", "+2% activate"],
             ["Trail Distance", "2.2% below high"],
             ["Take Profit", "+5.5%"],
@@ -803,6 +798,17 @@ export default function Backtest() {
             )}
           </Button>
 
+          <Button
+            data-ocid="backtest.secondary_button"
+            onClick={handleReset}
+            disabled={isRunning}
+            variant="ghost"
+            className="gap-2 font-semibold tracking-wider border border-border text-muted-foreground hover:border-primary/30 hover:bg-primary/5 hover:text-primary"
+          >
+            <RefreshCw className="h-4 w-4" />
+            Reset Dataset
+          </Button>
+
           {isRunning && (
             <div className="flex-1 space-y-1.5">
               <div className="text-xs text-muted-foreground">
@@ -835,6 +841,38 @@ export default function Backtest() {
           )}
         </div>
       </motion.div>
+
+      {/* Reset banner */}
+      <AnimatePresence>
+        {showResetBanner && (
+          <motion.div
+            key="reset-banner"
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.3 }}
+            className="flex items-start gap-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-primary"
+            data-ocid="backtest.success_state"
+          >
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+            <div className="flex flex-col gap-0.5">
+              <span className="text-sm font-semibold">
+                Dataset reset — fetching fresh 5-year data on next run. Cached
+                simulations cleared.
+              </span>
+              <span className="text-[11px] opacity-70">
+                Reset at{" "}
+                {lastReset.toLocaleTimeString("en-US", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  second: "2-digit",
+                  hour12: false,
+                })}
+              </span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Results */}
       <AnimatePresence>
