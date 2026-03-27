@@ -151,13 +151,14 @@ function runSimulation(
 
       if (price > pos.highestPrice) pos.highestPrice = price;
 
-      if (price >= pos.entryPrice * 1.06) exitReason = "TP";
-      else if (price <= pos.entryPrice * 0.96) exitReason = "SL";
+      if (price >= pos.entryPrice * 1.08) exitReason = "TP";
+      else if (price <= pos.entryPrice * 0.965) exitReason = "SL";
       else {
         const profitPct = (price - pos.entryPrice) / pos.entryPrice;
-        // Trail 2% below recent high, activates at +2% profit
-        if (profitPct >= 0.02) {
-          const trailStop = pos.highestPrice * 0.98;
+        // Trailing: activate at +3%, move to break-even, then trail 2% below recent high
+        if (profitPct >= 0.03) {
+          const breakEvenStop = pos.entryPrice;
+          const trailStop = Math.max(breakEvenStop, pos.highestPrice * 0.98);
           if (price <= trailStop) {
             exitReason = "TRAIL";
           }
@@ -196,13 +197,13 @@ function runSimulation(
 
       // Pullback entry strategy:
       // trend_up = EMA50 > EMA200
-      // pullback = close <= EMA50 * 1.015 (within 1.5%)
-      // rsi_ok = RSI > 40 AND RSI < 65
+      // pullback = close <= EMA50 * 1.01 (within 1%)
+      // rsi_ok = RSI > 35 AND RSI < 60
       // bullish = close > open
       const rsiVal = rsi14[i];
       const trendUp = e50 > e200;
-      const pullback = candle.close <= e50 * 1.015;
-      const rsiOk = rsiVal > 30 && rsiVal < 65;
+      const pullback = candle.close <= e50 * 1.01;
+      const rsiOk = rsiVal > 35 && rsiVal < 60;
       const bullishCandle = candle.close > candle.open;
       if (
         trendUp &&
@@ -293,7 +294,7 @@ async function fetchAllCandles(
   signal: AbortSignal,
 ): Promise<Candle[]> {
   const MS_PER_5_YEARS = 5 * 365 * 24 * 60 * 60 * 1000;
-  const INTERVAL_MS = 15 * 60 * 1000; // 15m candles
+  const INTERVAL_MS = 60 * 60 * 1000; // 1H candles
   const BATCH = 1000;
   const totalCandles = Math.ceil(MS_PER_5_YEARS / INTERVAL_MS);
   const totalBatches = Math.ceil(totalCandles / BATCH);
@@ -305,7 +306,7 @@ async function fetchAllCandles(
 
   while (startTime < now) {
     if (signal.aborted) throw new Error("Aborted");
-    const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=15m&limit=${BATCH}&startTime=${startTime}`;
+    const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1h&limit=${BATCH}&startTime=${startTime}`;
     const res = await fetch(url, { signal });
     if (!res.ok) throw new Error(`Binance API error: ${res.status}`);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -489,7 +490,7 @@ export default function Backtest() {
           Backtest
         </h1>
         <p className="mt-0.5 text-sm text-muted-foreground">
-          Simulate the strategy on 5 years of ETH/USDT 15m historical data
+          Simulate the strategy on 5 years of ETH/USDT 1H historical data
         </p>
       </div>
 
@@ -506,20 +507,26 @@ export default function Backtest() {
         <div className="grid grid-cols-2 gap-3 text-xs md:grid-cols-4">
           {[
             ["Symbols", "ETH/USDT"],
-            ["Timeframe", "15m"],
+            ["Timeframe", "1H"],
             ["Period", "5 years"],
             ["Starting Balance", "$10,000"],
             ["Position Size", "9% of total equity"],
             ["Max Open Trades", "10 (global)"],
             ["Strategy", "Pullback in Uptrend"],
             ["Trend Filter", "EMA50 > EMA200"],
-            ["Entry", "Close ≤ EMA50 × 1.015 (within 1.5% of EMA50)"],
+            ["Entry", "Close ≤ EMA50 × 1.01 (within 1% of EMA50)"],
             ["Trigger", "Bullish candle (close > open)"],
-            ["RSI Filter", "30–65"],
-            ["Trailing Stop", "Trail 2% below high, activate at +2%"],
-            ["Trail Distance", "Stop moves to entry price"],
-            ["Take Profit", "+6%"],
-            ["Stop Loss", "-4%"],
+            ["RSI Filter", "35–60"],
+            [
+              "Trailing Stop",
+              "Activate at +3%, move to break-even, then trail 2% below high",
+            ],
+            [
+              "Trail Distance",
+              "Break-even at +3%, then trail 2% below recent high",
+            ],
+            ["Take Profit", "+8%"],
+            ["Stop Loss", "-3.5%"],
             ["Trading Fee", "0.1% / side"],
             ["Slippage", "0.05% / side"],
           ].map(([k, v]) => (
@@ -749,7 +756,7 @@ export default function Backtest() {
                 index={7}
                 label="Avg Trade Duration"
                 value={`${results.avgDuration.toFixed(0)} candles`}
-                sub={`≈ ${(results.avgDuration * 0.25).toFixed(1)} hours`}
+                sub={`≈ ${(results.avgDuration * 1).toFixed(1)} hours`}
                 color="neutral"
               />
             </div>
@@ -883,8 +890,8 @@ export default function Backtest() {
             Ready to backtest
           </div>
           <div className="mt-1 text-xs text-muted-foreground">
-            Select ETH/USDT to simulate the strategy on 5 years of 15m
-            historical data.
+            Select ETH/USDT to simulate the strategy on 5 years of 1H historical
+            data.
           </div>
         </motion.div>
       )}
