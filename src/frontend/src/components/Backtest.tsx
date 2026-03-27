@@ -177,11 +177,12 @@ function runSimulation(
 
       if (price > pos.highestPrice) pos.highestPrice = price;
 
-      if (price >= pos.entryPrice * 1.05) exitReason = "TP";
-      else if (price <= pos.entryPrice * 0.965) exitReason = "SL";
+      if (price >= pos.entryPrice * 1.07) exitReason = "TP";
+      else if (price <= pos.entryPrice * 0.97) exitReason = "SL";
       else {
         const profitPct = (price - pos.entryPrice) / pos.entryPrice;
-        if (profitPct >= 0.02 && price <= pos.highestPrice * 0.978) {
+        // Break-even trailing: if profit >= 3%, stop loss moves to entry price
+        if (profitPct >= 0.03 && price <= pos.entryPrice) {
           exitReason = "TRAIL";
         }
       }
@@ -216,18 +217,26 @@ function runSimulation(
     if (i > START_INDEX + 20) {
       const candle = candles[i];
 
-      // Pullback entry: EMA50 > EMA200 (uptrend), price touches/near EMA50, RSI 35-60, bullish candle confirmation
+      // Pullback entry strategy:
+      // trend_up = EMA50 > EMA200 AND close > EMA50
+      // pullback = low <= EMA50 AND close >= EMA50
+      // rsi_ok = RSI > 45 AND RSI < 60 AND RSI rising
+      // bullish_candle = close > open AND body > 50% of range
       const rsiVal = rsi14[i];
-      const prevPrice = closes[i - 1];
-      const touchedEMA50 = prevPrice <= e50 * 1.01 && prevPrice >= e50 * 0.99;
-      const isBullishCandle = candle.close > candle.open;
+      const prevRsiVal = rsi14[i - 1];
+      const trendUp = e50 > e200 && price > e50;
+      const pullback = candle.low <= e50 && candle.close >= e50;
+      const rsiOk = rsiVal > 45 && rsiVal < 60 && rsiVal > prevRsiVal;
+      const range = candle.high - candle.low;
+      const bullishCandle =
+        candle.close > candle.open &&
+        range > 0 &&
+        candle.close - candle.open > range * 0.5;
       if (
-        e50 > e200 &&
-        touchedEMA50 &&
-        price > closes[i - 1] &&
-        isBullishCandle &&
-        rsiVal >= 35 &&
-        rsiVal <= 60 &&
+        trendUp &&
+        pullback &&
+        rsiOk &&
+        bullishCandle &&
         consecutiveLosses < 5 &&
         openPositions.length < 10 &&
         i - lastTradeIndex > 3
@@ -378,11 +387,12 @@ function runPortfolioSimulation(
       let exitReason: "TP" | "SL" | "TRAIL" | null = null;
       if (price > pos.highestPrice) pos.highestPrice = price;
 
-      if (price >= pos.entryPrice * 1.05) exitReason = "TP";
-      else if (price <= pos.entryPrice * 0.965) exitReason = "SL";
+      if (price >= pos.entryPrice * 1.07) exitReason = "TP";
+      else if (price <= pos.entryPrice * 0.97) exitReason = "SL";
       else {
         const profitPct = (price - pos.entryPrice) / pos.entryPrice;
-        if (profitPct >= 0.02 && price <= pos.highestPrice * 0.978) {
+        // Break-even trailing: if profit >= 3%, stop loss moves to entry price
+        if (profitPct >= 0.03 && price <= pos.entryPrice) {
           exitReason = "TRAIL";
         }
       }
@@ -426,21 +436,30 @@ function runPortfolioSimulation(
       const e50 = ema50[i];
       const e200 = ema200[i];
       const rsiVal = rsi14[i];
-      const prevPrice = closes[i - 1];
-      const touchedEMA50 = prevPrice <= e50 * 1.01 && prevPrice >= e50 * 0.99;
-      const isBullishCandle = candle.close > candle.open;
+      const prevRsiVal = rsi14[i - 1];
 
       // Per-coin open trade count
       const coinOpenCount = openPositions.filter((p) => p.coin === coin).length;
       const maxForCoin = MAX_TRADES_PER_COIN[coin] ?? 2;
 
+      // trend_up = EMA50 > EMA200 AND close > EMA50
+      // pullback = low <= EMA50 AND close >= EMA50
+      // rsi_ok = RSI > 45 AND RSI < 60 AND RSI rising
+      // bullish_candle = close > open AND body > 50% of range
+      const trendUp = e50 > e200 && price > e50;
+      const pullback = candle.low <= e50 && candle.close >= e50;
+      const rsiOk = rsiVal > 45 && rsiVal < 60 && rsiVal > prevRsiVal;
+      const range = candle.high - candle.low;
+      const bullishCandle =
+        candle.close > candle.open &&
+        range > 0 &&
+        candle.close - candle.open > range * 0.5;
+
       if (
-        e50 > e200 &&
-        touchedEMA50 &&
-        price > prevPrice &&
-        isBullishCandle &&
-        rsiVal >= 35 &&
-        rsiVal <= 60 &&
+        trendUp &&
+        pullback &&
+        rsiOk &&
+        bullishCandle &&
         consecutiveLosses < 5 &&
         openPositions.length < 10 &&
         coinOpenCount < maxForCoin &&
@@ -890,14 +909,14 @@ export default function Backtest() {
             ["Max Open Trades", "10 (global) · ETH: 5 · ADA: 5"],
             ["Asset Priority", "ETH (1st) · ADA (2nd)"],
             ["Strategy", "Pullback in Uptrend"],
-            ["Trend Filter", "EMA50 > EMA200"],
-            ["Entry", "Price pulls back to within 1% above EMA50"],
-            ["Trigger", "Bullish candle after EMA50 touch"],
-            ["RSI Filter", "35–60 (relaxed pullback zone)"],
-            ["Trailing Stop", "+2% activate"],
-            ["Trail Distance", "2.2% below high"],
-            ["Take Profit", "+5%"],
-            ["Stop Loss", "-3.5%"],
+            ["Trend Filter", "EMA50 > EMA200 · Close > EMA50"],
+            ["Entry", "Low ≤ EMA50 · Close ≥ EMA50 (pullback touch)"],
+            ["Trigger", "Bullish candle (body > 50% of range)"],
+            ["RSI Filter", "45–60 (rising only)"],
+            ["Trailing Stop", "Break even at +3%"],
+            ["Trail Distance", "Stop moves to entry price"],
+            ["Take Profit", "+7%"],
+            ["Stop Loss", "-3%"],
             ["Trading Fee", "0.1% / side"],
             ["Slippage", "0.05% / side"],
           ].map(([k, v]) => (
