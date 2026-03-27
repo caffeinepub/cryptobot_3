@@ -73,28 +73,24 @@ interface PortfolioResults extends BacktestResults {
   perCoin: CoinBreakdown[];
 }
 
-type Coin = "ETH" | "ADA";
+type Coin = "BTC" | "ETH" | "ADA";
 type Selection = Coin | "PORTFOLIO";
 
 const COIN_SYMBOLS: Record<Coin, string> = {
+  BTC: "BTCUSDT",
   ETH: "ETHUSDT",
   ADA: "ADAUSDT",
 };
 
-const ALL_COINS: Coin[] = ["ETH", "ADA"];
-const PORTFOLIO_COINS: Coin[] = ["ETH", "ADA"];
+const ALL_COINS: Coin[] = ["BTC", "ETH", "ADA"];
+const PORTFOLIO_COINS: Coin[] = ["ETH", "ADA", "BTC"];
 // Kept for UI display only — not used in simulation logic
 const PORTFOLIO_WEIGHTS: Record<string, number> = {
   ETH: 0.5,
-  ADA: 0.5,
+  ADA: 0.3,
+  BTC: 0.2,
 };
 const STARTING_BALANCE = 10000;
-
-// Portfolio selection: per-coin max concurrent trades
-const MAX_TRADES_PER_COIN: Record<string, number> = {
-  ETH: 5,
-  ADA: 5,
-};
 
 // ---- Indicator calculations ----
 
@@ -430,10 +426,6 @@ function runPortfolioSimulation(
       const touchedEMA50 = prevPrice <= e50 * 1.01 && prevPrice >= e50 * 0.99;
       const isBullishCandle = candle.close > candle.open;
 
-      // Per-coin open trade count
-      const coinOpenCount = openPositions.filter((p) => p.coin === coin).length;
-      const maxForCoin = MAX_TRADES_PER_COIN[coin] ?? 2;
-
       if (
         e50 > e200 &&
         touchedEMA50 &&
@@ -443,7 +435,6 @@ function runPortfolioSimulation(
         rsiVal <= 60 &&
         consecutiveLosses < 5 &&
         openPositions.length < 10 &&
-        coinOpenCount < maxForCoin &&
         i - lastTradeIndex[coin] > 3
       ) {
         // Position size: 9% of total portfolio equity
@@ -682,7 +673,7 @@ export default function Backtest() {
   const [portfolioResults, setPortfolioResults] =
     useState<PortfolioResults | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
-  const [selectedCoin, setSelectedCoin] = useState<Selection>("ETH");
+  const [selectedCoin, setSelectedCoin] = useState<Selection>("BTC");
   const [resetKey, setResetKey] = useState(0);
   const [lastReset, setLastReset] = useState<Date | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -696,7 +687,7 @@ export default function Backtest() {
 
   const isPortfolio = selectedCoin === "PORTFOLIO";
   const pairLabel = isPortfolio
-    ? "ETH, ADA (shared $10,000 balance)"
+    ? "ETH, ADA, BTC (shared $10,000 balance)"
     : `${selectedCoin}/USDT`;
 
   const handleReset = () => {
@@ -881,14 +872,15 @@ export default function Backtest() {
           {[
             [
               "Symbols",
-              isPortfolio ? "ETH, ADA (shared $10,000 balance)" : pairLabel,
+              isPortfolio
+                ? "ETH, ADA, BTC (shared $10,000 balance)"
+                : pairLabel,
             ],
             ["Timeframe", "15m"],
             ["Period", "5 years"],
             ["Starting Balance", "$10,000"],
             ["Position Size", "9% of total equity"],
-            ["Max Open Trades", "10 (global) · ETH: 5 · ADA: 5"],
-            ["Asset Priority", "ETH (1st) · ADA (2nd)"],
+            ["Max Open Trades", "10 (global, all coins)"],
             ["Strategy", "Pullback in Uptrend"],
             ["Trend Filter", "EMA50 > EMA200"],
             ["Entry", "Price pulls back to within 1% above EMA50"],
@@ -968,7 +960,7 @@ export default function Backtest() {
               transition={{ duration: 0.25 }}
               className="mt-3 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-primary"
             >
-              Portfolio mode runs ETH and ADA simultaneously with a single
+              Portfolio mode runs ETH, ADA, and BTC simultaneously with a single
               shared $10,000 balance. Max 10 open trades across all coins
               combined. Position size is 9% of total portfolio equity at entry
               time.
@@ -1030,7 +1022,7 @@ export default function Backtest() {
             <div className="flex items-center gap-2 text-sm text-success">
               <CheckCircle2 className="h-4 w-4" />
               Simulation complete — {activeResults.numTrades} trades analyzed on{" "}
-              {isPortfolio ? "ETH, ADA" : pairLabel}
+              {isPortfolio ? "ETH, ADA, BTC" : pairLabel}
             </div>
           )}
 
@@ -1168,7 +1160,7 @@ export default function Backtest() {
                 <div className="mb-3 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
                   Per-Coin Breakdown
                 </div>
-                <div className="grid grid-cols-2 gap-4 sm:grid-cols-2 lg:grid-cols-2">
+                <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-3">
                   {portfolioResults.perCoin.map((breakdown, idx) => (
                     <CoinCard
                       key={breakdown.coin}
@@ -1190,7 +1182,7 @@ export default function Backtest() {
               <div className="border-b border-border px-5 py-4">
                 <div className="flex items-center justify-between">
                   <h2 className="text-[11px] font-bold uppercase tracking-widest text-foreground">
-                    Trade Log — {isPortfolio ? "ETH, ADA" : pairLabel}
+                    Trade Log — {isPortfolio ? "ETH, ADA, BTC" : pairLabel}
                   </h2>
                   <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
                     <span className="flex items-center gap-1">
@@ -1326,7 +1318,7 @@ export default function Backtest() {
           </div>
           <div className="mt-1 text-xs text-muted-foreground">
             Select a coin or run Portfolio mode to simulate the strategy across
-            ETH and ADA with a single shared balance.
+            ETH, ADA, and BTC with a single shared balance.
           </div>
         </motion.div>
       )}
