@@ -1,24 +1,24 @@
 # CryptoBot
 
 ## Current State
-Backtest simulation uses `e50 > e200` as the only trend filter. No minimum gap or spread-widening check exists. The Simulation Parameters panel shows "Trend Filter: EMA50 > EMA200" only.
+Pullback entry mode: EMA50 > EMA200, price > EMA50, EMA50 >= 1% above EMA200, RSI 40–55, bullish candle confirmation.
 
 ## Requested Changes (Diff)
 
 ### Add
-- Minimum EMA gap filter: `(e50 - e200) / e200 >= 0.005` — EMA50 must be at least 0.5% above EMA200 before any entry
-- Spread-widening filter: current EMA50–EMA200 gap must be greater than the previous candle's gap (trend must be strengthening, not converging)
-- Two new entries in the Simulation Parameters panel: "EMA Min Gap" and "EMA Spread"
+- Breakout entry: price makes new 10-candle high (price > highest HIGH of last 10 candles)
 
 ### Modify
-- `runSimulation` entry condition block in Backtest.tsx to include the two new filters
-- Simulation Parameters panel labels to reflect the new filters
+- Strategy label: pullback → breakout
+- Entry conditions: remove RSI filter, remove bullish candle confirmation, remove EMA strength (1%) filter, remove pullback logic
+- Keep: EMA50 > EMA200, price > EMA50
+- Simulation Parameters panel updated to reflect new strategy
 
 ### Remove
-- Nothing removed
+- RSI check (r >= 40 && r <= 55)
+- isBullish check (candle.close > candle.open)
+- EMA50 >= EMA200 * 1.01 trend strength filter
 
 ## Implementation Plan
-1. In `runSimulation`, pre-compute `prevGap = ema50[i-1] - ema200[i-1]` and `currGap = e50 - e200` each candle.
-2. Add `currGap / e200 >= 0.005` to entry condition (0.5% minimum spread).
-3. Add `currGap > prevGap` to entry condition (spread must be widening).
-4. Add two rows to the Simulation Parameters grid: "EMA Min Gap" = "≥ 0.5% (strong trend)" and "EMA Spread" = "Widening (gap > prev gap)".
+1. In Backtest.tsx runSimulation: add 10-candle high breakout condition, remove RSI/bullish/strength filters
+2. Update Simulation Parameters panel labels

@@ -96,35 +96,6 @@ function calcEMA(closes: number[], period: number): number[] {
   return ema;
 }
 
-function calcRSI(closes: number[], period = 14): number[] {
-  const rsi: number[] = new Array(closes.length).fill(50);
-  if (closes.length < period + 1) return rsi;
-
-  let avgGain = 0;
-  let avgLoss = 0;
-  for (let i = 1; i <= period; i++) {
-    const diff = closes[i] - closes[i - 1];
-    if (diff >= 0) avgGain += diff;
-    else avgLoss += -diff;
-  }
-  avgGain /= period;
-  avgLoss /= period;
-
-  const rs0 = avgLoss === 0 ? 100 : avgGain / avgLoss;
-  rsi[period] = 100 - 100 / (1 + rs0);
-
-  for (let i = period + 1; i < closes.length; i++) {
-    const diff = closes[i] - closes[i - 1];
-    const gain = diff >= 0 ? diff : 0;
-    const loss = diff < 0 ? -diff : 0;
-    avgGain = (avgGain * (period - 1) + gain) / period;
-    avgLoss = (avgLoss * (period - 1) + loss) / period;
-    const rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
-    rsi[i] = 100 - 100 / (1 + rs);
-  }
-  return rsi;
-}
-
 // ---- Simulation ----
 
 function runSimulation(
@@ -138,7 +109,6 @@ function runSimulation(
   const closes = candles.map((c) => c.close);
   const ema50 = calcEMA(closes, 50);
   const ema200 = calcEMA(closes, 200);
-  const rsi = calcRSI(closes, 14);
 
   let balance = startingBalance;
   const equityCurve: number[] = [startingBalance];
@@ -158,12 +128,9 @@ function runSimulation(
   let lastTradeIndex = -1;
 
   for (let i = START_INDEX; i < candles.length; i++) {
-    const candle = candles[i];
     const price = closes[i];
     const e50 = ema50[i];
     const e200 = ema200[i];
-    const r = rsi[i];
-    const isBullish = candle.close > candle.open;
 
     for (let p = openPositions.length - 1; p >= 0; p--) {
       const pos = openPositions[p];
@@ -207,16 +174,17 @@ function runSimulation(
       }
     }
 
-    if (i > START_INDEX + 5) {
+    if (i > START_INDEX + 10) {
+      const lookbackHigh = Math.max(
+        ...candles.slice(i - 10, i).map((c) => c.high),
+      );
+
       if (
         consecutiveLosses < 5 &&
         openPositions.length < 10 &&
         e50 > e200 &&
-        e50 >= e200 * 1.01 &&
         price > e50 &&
-        r >= 40 &&
-        r <= 55 &&
-        isBullish &&
+        price > lookbackHigh &&
         i - lastTradeIndex > 5
       ) {
         const size = balance * 0.09;
@@ -690,10 +658,9 @@ export default function Backtest() {
             ["Starting Balance", "$10,000"],
             ["Position Size", "9% of balance"],
             ["Max Open Trades", "10"],
-            ["Entry RSI", "40 – 55 (Pullback)"],
-            ["Confirmation", "Bullish candle (close > open)"],
-            ["Strategy", "Pullback (EMA50 > EMA200 + Price > EMA50)"],
-            ["Trend Strength", "EMA50 ≥ 1% above EMA200"],
+            ["Strategy", "Trend Breakout (EMA50 > EMA200)"],
+            ["Entry Trigger", "New 10-candle high"],
+            ["Trend Filter", "EMA50 > EMA200 + Price > EMA50"],
             ["Trailing Stop", "+2% activate"],
             ["Trail Distance", "2.2% below high"],
             ["Take Profit", "+5.5%"],
