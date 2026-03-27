@@ -23,7 +23,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 // ---- Types ----
 
@@ -223,6 +223,7 @@ function runSimulation(
         consecutiveLosses < 5 &&
         openPositions.length < 10 &&
         e50 > e200 &&
+        price > e200 &&
         price > e50 &&
         price > breakoutLevel &&
         price >= breakoutLevel * 1.003 &&
@@ -312,13 +313,13 @@ async function fetchAllCandles(
   onProgress: (batch: number, total: number) => void,
   signal: AbortSignal,
 ): Promise<Candle[]> {
-  const MS_PER_3_YEARS = 3 * 365 * 24 * 60 * 60 * 1000;
+  const MS_PER_5_YEARS = 5 * 365 * 24 * 60 * 60 * 1000;
   const INTERVAL_MS = 15 * 60 * 1000;
   const BATCH = 1000;
-  const totalCandles = Math.ceil(MS_PER_3_YEARS / INTERVAL_MS);
+  const totalCandles = Math.ceil(MS_PER_5_YEARS / INTERVAL_MS);
   const totalBatches = Math.ceil(totalCandles / BATCH);
 
-  let startTime = Date.now() - MS_PER_3_YEARS;
+  let startTime = Date.now() - MS_PER_5_YEARS;
   const now = Date.now();
   const candles: Candle[] = [];
   let batchNum = 0;
@@ -448,6 +449,13 @@ export default function Backtest() {
   const [errorMsg, setErrorMsg] = useState("");
   const [selectedCoin, setSelectedCoin] = useState<Selection>("BTC");
   const abortRef = useRef<AbortController | null>(null);
+
+  // Clear cached simulation data on mount
+  useEffect(() => {
+    setResults(null);
+    setPortfolioResults(null);
+    setStatus("idle");
+  }, []);
 
   const isPortfolio = selectedCoin === "PORTFOLIO";
   const pairLabel = isPortfolio ? "BTC (Portfolio)" : `${selectedCoin}/USDT`;
@@ -659,7 +667,7 @@ export default function Backtest() {
           Backtest
         </h1>
         <p className="mt-0.5 text-sm text-muted-foreground">
-          Simulate the strategy on 3 years of {pairLabel} 15m historical data
+          Simulate the strategy on 5 years of {pairLabel} 15m historical data
         </p>
       </div>
 
@@ -677,7 +685,7 @@ export default function Backtest() {
           {[
             ["Symbol", isPortfolio ? "BTC (Portfolio)" : pairLabel],
             ["Timeframe", "15m"],
-            ["Period", "3 years"],
+            ["Period", "5 years"],
             ["Starting Balance", "$10,000"],
             ["Position Size", "9% of balance"],
             ["Max Open Trades", "10"],
@@ -687,7 +695,7 @@ export default function Backtest() {
             ["Momentum Body", "Body ≥ 0.6% (clearly bullish)"],
             ["Choppy Filter", "Last 3 candles avg body ≥ 0.15%"],
             ["Candle Type", "Bullish (Close > Open)"],
-            ["Trend Filter", "EMA50 > EMA200"],
+            ["Trend Filter", "EMA50 > EMA200 + Price > EMA200"],
             ["Momentum", "Price > EMA50"],
             ["Trailing Stop", "+2% activate"],
             ["Trail Distance", "2.2% below high"],
@@ -1077,7 +1085,7 @@ export default function Backtest() {
           <div className="mt-1 text-xs text-muted-foreground">
             Click{" "}
             <span className="font-semibold text-success">Run Backtest</span> to
-            fetch 3 years of {pairLabel} 15m candles and simulate the strategy.
+            fetch 5 years of {pairLabel} 15m candles and simulate the strategy.
           </div>
         </motion.div>
       )}
